@@ -2,9 +2,11 @@
 The Next gen of image viewing ;)
 
 ## Features
+- pan and zoom (on pixel level)
 
 ## Planned Features
-- zooming and panning (on pixel level)
+- Checkers background for images with transparency
+- zoom ui
 - picking a color
 - pick average color or darkest/lightest color from a region
 - convert between formats
