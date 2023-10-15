@@ -1,4 +1,4 @@
-use egui::Sense;
+use egui::{Sense, Color32};
 use crate::egui_extensions::PainterEx;
 
 pub struct PanZoomImage {
@@ -7,6 +7,8 @@ pub struct PanZoomImage {
     pub texture_handle: egui::TextureHandle,
     offset: egui::Vec2,
     scale: f32,
+    checkers_mesh: egui::Shape,
+    last_image_rect: egui::Rect
 }
 
 impl PanZoomImage {
@@ -16,7 +18,9 @@ impl PanZoomImage {
             always_center,
             texture_handle,
             offset: egui::vec2(0.0, 0.0),
-            scale: 1.0
+            scale: 1.0,
+            checkers_mesh: egui::Shape::Noop,
+            last_image_rect: egui::Rect { min: egui::pos2(0.0, 0.0), max: egui::pos2(0.0, 0.0) }
         }
     }
 
@@ -104,10 +108,7 @@ impl PanZoomImage {
             max: image_max.to_pos2().clamp(rect.min, rect.max)
         };
 
-        if DEBUG {
-            ui.painter().debug_stroke(rect);
-            ui.painter().debug_stroke(image_rect);
-        }
+        
 
         // calculating the uv of the texture to clip the invisible parts
         let mut uv_min_x = 0.0;
@@ -130,14 +131,47 @@ impl PanZoomImage {
             min: egui::pos2(uv_min_x, uv_min_y),
             max: egui::pos2(uv_max_x, uv_max_y),
         };
-        // TODO: draw checkers background for images with transparency
+
+        if self.last_image_rect != image_rect {
+            self.regenerate_checkerboard(image_rect);
+            self.last_image_rect = image_rect;
+        }
+
+        // TODO: find a way to remove the clone
+        // A better way to do the checkers background is using texture tiling(in the shader) but this is not available in egui at the moment
+        let mesh = self.checkers_mesh.clone();
+        ui.painter().add(mesh);
+
         ui.painter().image(self.texture_handle.id(), image_rect, uv, egui::Color32::WHITE);
 
         
+
         if DEBUG {
+            ui.painter().debug_stroke(rect);
+            ui.painter().debug_stroke(image_rect);
             ui.painter().debug_label(rect.min, format!("scale: {}, min: {}, max: {}", self.scale, min_scale, max_scale));
         }
        
 
+    }
+
+    fn regenerate_checkerboard(&mut self, area: egui::Rect) {
+        const RECT_SIZE: f32 = 8.0;
+        let size = area.size();
+        let mut mesh = egui::Mesh::default();
+        let checker_count = (size / RECT_SIZE).ceil();
+        for row in 0..checker_count.y as u32 {
+            for column in 0..checker_count.x as u32 {
+                let x = column as f32 * RECT_SIZE + area.min.x;
+                let y = row as f32 * RECT_SIZE + area.min.y;
+                let rect = egui::Rect {
+                    min: egui::pos2(x, y),
+                    max: egui::pos2(x + RECT_SIZE, y + RECT_SIZE).min(area.max)
+                };
+                let color = if (row + column) % 2 == 0 {Color32::WHITE} else {Color32::LIGHT_GRAY};
+                mesh.add_colored_rect(rect, color);
+            }
+        }
+        self.checkers_mesh = egui::Shape::mesh(mesh);
     }
 }

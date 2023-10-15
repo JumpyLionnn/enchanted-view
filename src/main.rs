@@ -29,6 +29,7 @@ impl EnchantedView {
     fn new(context: &egui::Context) -> Self {
         let image = image::open("assets/sample_image.jpg").unwrap();
         let image = image::open("assets/crate.png").unwrap();
+        let image = image::open("assets/jumpylion.png").unwrap();
         let rgba_image = image.to_rgba8();
         let texture_image = egui::ColorImage::from_rgba_unmultiplied(
             [rgba_image.width() as usize, rgba_image.height() as usize], 
