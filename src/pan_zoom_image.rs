@@ -160,7 +160,7 @@ impl PanZoomImage {
         }
         let mut uv_min_y = 0.0;
         if image_min.y < rect.min.y {
-            uv_min_y = ((rect.min.x - image_min.y) / self.scale) / self.image_size.y;
+            uv_min_y = ((rect.min.y - image_min.y) / self.scale) / self.image_size.y;
         }
         let mut uv_max_x = 1.0;
         if image_max.x > rect.max.x {
