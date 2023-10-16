@@ -1,8 +1,13 @@
-use egui::{TextureOptions, TextureFilter};
+use egui::{TextureOptions, TextureFilter, Layout};
 use image::{DynamicImage, EncodableLayout};
 mod pan_zoom_image;
 mod egui_extensions;
+mod image_button;
+mod drop_down_menu;
 use pan_zoom_image::PanZoomImage;
+use image_button::ImageButton;
+use drop_down_menu::DropDownMenu;
+
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
@@ -27,9 +32,12 @@ struct EnchantedView {
 
 impl EnchantedView {
     fn new(context: &egui::Context) -> Self {
+        context.style_mut(|style| {
+            style.interaction.tooltip_delay = 0.5;
+        });
         let image = image::open("assets/sample_image.jpg").unwrap();
-        let image = image::open("assets/crate.png").unwrap();
         let image = image::open("assets/jumpylion.png").unwrap();
+        let image = image::open("assets/crate.png").unwrap();
         let rgba_image = image.to_rgba8();
         let texture_image = egui::ColorImage::from_rgba_unmultiplied(
             [rgba_image.width() as usize, rgba_image.height() as usize], 
@@ -38,9 +46,10 @@ impl EnchantedView {
             magnification: TextureFilter::Nearest,
             minification: TextureFilter::Linear,
         });
+        let image_size = egui::vec2(image.width() as f32, image.height() as f32);
         Self {
             image: image,
-            image_display: PanZoomImage::new(true, true, handle)
+            image_display: PanZoomImage::new(true, true, handle, image_size)
         }
     }
 }
@@ -48,8 +57,51 @@ impl EnchantedView {
 impl eframe::App for EnchantedView {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            let image_size = egui::vec2(self.image.width() as f32, self.image.height() as f32);
-            self.image_display.update(ui, image_size);
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), 30.0), 
+                egui::Layout::left_to_right(egui::Align::Min).with_main_align(egui::Align::Center).with_cross_align(egui::Align::Center), 
+                |ui| {
+                    // TODO: Adjust the styles based on the theme
+                    ui.style_mut().visuals.widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
+                    ui.style_mut().visuals.widgets.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
+                    ui.style_mut().visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
+                    ui.style_mut().visuals.widgets.hovered.weak_bg_fill = egui::Color32::from_gray(230);
+                    ui.style_mut().visuals.widgets.hovered.bg_fill = egui::Color32::TRANSPARENT;
+                    ui.style_mut().visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
+                    ui.style_mut().visuals.widgets.active.weak_bg_fill = egui::Color32::from_gray(200);
+                    ui.style_mut().visuals.widgets.active.bg_fill = egui::Color32::TRANSPARENT;
+
+                    let zoom_in_button = ImageButton::new(egui::include_image!("../assets/zoom_in.png"))
+                        .tint(egui::Color32::BLACK)
+                        .disabled_tint(egui::Color32::DARK_GRAY)
+                        .enabled(self.image_display.can_zoom_in())
+                        .tooltip("Zoom in");
+                    if zoom_in_button.ui(ui).clicked() {
+                        self.image_display.zoom_in();
+                    }
+
+                    ui.allocate_ui_with_layout(egui::vec2(60.0, ui.available_height()), Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
+                        let text = format!("{:.2}%", self.image_display.scale * 100.0);
+                        DropDownMenu::new(text, "zoom_display").width(ui.available_width()).menu_width(120.0).ui(ui, |ui| {
+                            if ui.button("View actual size").clicked() {
+                                self.image_display.zoom_to_original();
+                            }
+                            if ui.button("Zoom to fit").clicked() {
+                                self.image_display.zoom_to_fit();
+                            }
+                        });
+                    });
+                    
+                    let zoom_out_button = ImageButton::new(egui::include_image!("../assets/zoom_out.png"))
+                        .tint(egui::Color32::BLACK)
+                        .disabled_tint(egui::Color32::DARK_GRAY)
+                        .enabled(self.image_display.can_zoom_out())
+                        .tooltip("Zoom out");
+                    if zoom_out_button.ui(ui).clicked() {
+                        self.image_display.zoom_out();
+                    }
+                });
+            self.image_display.update(ui);
         });
     }
 }

@@ -5,14 +5,18 @@ pub struct PanZoomImage {
     pub constrain_to_image: bool,
     pub always_center: bool,
     pub texture_handle: egui::TextureHandle,
+    image_size: egui::Vec2,
     offset: egui::Vec2,
-    scale: f32,
+    pub scale: f32,
     checkers_mesh: egui::Shape,
-    last_image_rect: egui::Rect
+    last_rect: egui::Rect,
+    last_image_rect: egui::Rect,
+    min_scale: f32,
+    pub max_scale: f32
 }
 
 impl PanZoomImage {
-    pub fn new(constrain_to_image: bool, always_center: bool, texture_handle: egui::TextureHandle) -> Self {
+    pub fn new(constrain_to_image: bool, always_center: bool, texture_handle: egui::TextureHandle, image_size: egui::Vec2) -> Self {
         Self {
             constrain_to_image,
             always_center,
@@ -20,8 +24,41 @@ impl PanZoomImage {
             offset: egui::vec2(0.0, 0.0),
             scale: 1.0,
             checkers_mesh: egui::Shape::Noop,
-            last_image_rect: egui::Rect { min: egui::pos2(0.0, 0.0), max: egui::pos2(0.0, 0.0) }
+            last_rect: egui::Rect { min: egui::pos2(0.0, 0.0), max: egui::pos2(0.0, 0.0) },
+            last_image_rect: egui::Rect { min: egui::pos2(0.0, 0.0), max: egui::pos2(0.0, 0.0) },
+            min_scale: 0.0,
+            max_scale: 32.0,
+            image_size
         }
+    }
+
+    pub fn zoom_to_original(&mut self) {
+        self.set_zoom(1.0, self.last_image_rect.center().to_vec2());
+    }
+
+    pub fn zoom_to_fit(&mut self) {
+        let new_scale = self.calc_fit_scale(self.last_rect);
+        self.set_zoom(new_scale, self.last_image_rect.center().to_vec2());
+    }
+
+    pub fn zoom_in(&mut self) {
+        // TODO:  animation using tweened
+        // zoom towards the center
+        self.set_zoom(self.scale + self.scale * 0.1, self.last_image_rect.center().to_vec2());
+    }
+
+    pub fn zoom_out(&mut self) {
+        // TODO:  animation using tweened
+        // zoom towards the center
+        self.set_zoom(self.scale - self.scale * 0.1, self.last_image_rect.center().to_vec2());
+    }
+
+    pub fn can_zoom_in(&self) -> bool {
+        self.scale < self.max_scale
+    }
+
+    pub fn can_zoom_out(&self) -> bool {
+        self.scale > self.min_scale
     }
 
     fn world_to_screen(&self, world: egui::Vec2) -> egui::Vec2 {
@@ -38,18 +75,30 @@ impl PanZoomImage {
         }
     }
 
-    pub fn update(&mut self, ui: &mut egui::Ui, image_size: egui::Vec2) {
-        const DEBUG: bool = false;
+    fn calc_fit_scale(&mut self, rect: egui::Rect) -> f32 {
+        f32::min(rect.width() / self.image_size.x, rect.height() / self.image_size.y)
+    }
 
+    fn set_zoom(&mut self, zoom_value: f32, anchor: egui::Vec2) {
+        let before_zoom = self.screen_to_world(anchor);
+        self.scale = zoom_value;
+        self.scale = self.scale.clamp(self.min_scale, self.max_scale);
+        let after_zoom = self.screen_to_world(anchor);
+        self.offset += before_zoom - after_zoom;
+    }
+
+    pub fn update(&mut self, ui: &mut egui::Ui) {
+        const DEBUG: bool = false;
+        // TODO: animate the scaling to be smooth
         let mouse_pos = ui.input(|input| input.pointer.latest_pos().unwrap_or(egui::pos2(0.0, 0.0))).to_vec2();
 
         let (rect, res) = ui.allocate_at_least(ui.available_size(), Sense::drag());
+        self.last_rect = rect;
         // them min scale that the image can fit on the screen
-        let min_scale = f32::min(rect.width() / image_size.x, rect.height() / image_size.y).min(1.0);
-        let max_scale = 32.0;
+        self.min_scale = self.calc_fit_scale(rect).min(1.0);
         if ui.ctx().frame_nr() == 1 {
             // on first frame we set the min scale
-            self.scale = min_scale;
+            self.scale = self.min_scale;
         }
         // input
         if res.dragged() {
@@ -57,21 +106,17 @@ impl PanZoomImage {
         }
         // zooming
         let scroll_delta = ui.input(|input| input.scroll_delta);
-        let before_zoom = self.screen_to_world(mouse_pos);
         if scroll_delta.y > 0.0 {
-            self.scale += self.scale * 0.1;
+            self.set_zoom(self.scale + self.scale * 0.1, mouse_pos);
         }
         if scroll_delta.y < 0.0 {
-            self.scale -= self.scale * 0.1;
+            self.set_zoom(self.scale - self.scale * 0.1, mouse_pos);
         }
-        self.scale = self.scale.clamp(min_scale, max_scale);
-        let after_zoom = self.screen_to_world(mouse_pos);
-        self.offset += before_zoom - after_zoom;
 
         // calculating min and max offset to constrain the pan to the image boundaries
         if self.constrain_to_image {
             let min_offset = rect.min.to_vec2() - rect.min.to_vec2() / self.scale;
-            let max_offset = ((image_size * self.scale - rect.size()) / self.scale + min_offset).max(min_offset);
+            let max_offset = ((self.image_size * self.scale - rect.size()) / self.scale + min_offset).max(min_offset);
             self.offset = self.offset.clamp(min_offset, max_offset);
             if DEBUG {
                 ui.painter().debug_label(rect.min + egui::vec2(0.0, 20.0), format!("offset: {:?}, min: {:?}", self.offset, min_offset));
@@ -81,7 +126,7 @@ impl PanZoomImage {
 
         // centering
         if self.always_center {
-            let free_space = rect.size() - image_size * self.scale;
+            let free_space = rect.size() - self.image_size * self.scale;
             if free_space.x > 0.0 {
                 self.offset.x = -free_space.x / 2.0 / self.scale;
                 // the scaling changes the image offset too so its needed to be corrected
@@ -102,30 +147,28 @@ impl PanZoomImage {
 
         
         let image_min = self.world_to_screen(rect.min.to_vec2());
-        let image_max = self.world_to_screen(rect.min.to_vec2() + image_size);
+        let image_max = self.world_to_screen(rect.min.to_vec2() + self.image_size);
         let image_rect = egui::Rect {
             min: image_min.to_pos2().clamp(rect.min, rect.max),
             max: image_max.to_pos2().clamp(rect.min, rect.max)
         };
-
         
-
         // calculating the uv of the texture to clip the invisible parts
         let mut uv_min_x = 0.0;
         if image_min.x < rect.min.x {
-            uv_min_x = ((rect.min.x - image_min.x) / self.scale) / image_size.x;
+            uv_min_x = ((rect.min.x - image_min.x) / self.scale) / self.image_size.x;
         }
         let mut uv_min_y = 0.0;
         if image_min.y < rect.min.y {
-            uv_min_y = ((rect.min.x - image_min.y) / self.scale) / image_size.y;
+            uv_min_y = ((rect.min.x - image_min.y) / self.scale) / self.image_size.y;
         }
         let mut uv_max_x = 1.0;
         if image_max.x > rect.max.x {
-            uv_max_x = (image_size.x + (rect.max.x - image_max.x) / self.scale) / image_size.x;
+            uv_max_x = (self.image_size.x + (rect.max.x - image_max.x) / self.scale) / self.image_size.x;
         }
         let mut uv_max_y = 1.0;
         if image_max.y > rect.max.y {
-            uv_max_y = (image_size.y + (rect.max.y - image_max.y) / self.scale) / image_size.y;
+            uv_max_y = (self.image_size.y + (rect.max.y - image_max.y) / self.scale) / self.image_size.y;
         }
         let uv = egui::Rect {
             min: egui::pos2(uv_min_x, uv_min_y),
@@ -149,7 +192,7 @@ impl PanZoomImage {
         if DEBUG {
             ui.painter().debug_stroke(rect);
             ui.painter().debug_stroke(image_rect);
-            ui.painter().debug_label(rect.min, format!("scale: {}, min: {}, max: {}", self.scale, min_scale, max_scale));
+            ui.painter().debug_label(rect.min, format!("scale: {}, min: {}, max: {}", self.scale, self.min_scale, self.max_scale));
         }
        
 
