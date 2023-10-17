@@ -27,7 +27,9 @@ fn main() -> Result<(), eframe::Error> {
 
 struct EnchantedView {
     image: DynamicImage,
-    image_display: PanZoomImage
+    image_display: PanZoomImage,
+    flip_horizontal: bool,
+    flip_vertical: bool
 }
 
 impl EnchantedView {
@@ -35,9 +37,9 @@ impl EnchantedView {
         context.style_mut(|style| {
             style.interaction.tooltip_delay = 0.5;
         });
-        let image = image::open("assets/sample_image.jpg").unwrap();
         let image = image::open("assets/jumpylion.png").unwrap();
         let image = image::open("assets/crate.png").unwrap();
+        let image = image::open("assets/sample_image.jpg").unwrap();
         let rgba_image = image.to_rgba8();
         let texture_image = egui::ColorImage::from_rgba_unmultiplied(
             [rgba_image.width() as usize, rgba_image.height() as usize], 
@@ -49,7 +51,9 @@ impl EnchantedView {
         let image_size = egui::vec2(image.width() as f32, image.height() as f32);
         Self {
             image: image,
-            image_display: PanZoomImage::new(true, true, handle, image_size)
+            image_display: PanZoomImage::new(true, true, handle, image_size),
+            flip_horizontal: false,
+            flip_vertical: false
         }
     }
 }
@@ -100,8 +104,29 @@ impl eframe::App for EnchantedView {
                     if zoom_out_button.ui(ui).clicked() {
                         self.image_display.zoom_out();
                     }
+
+
+                    // Its not working, waiting for #3481 in egui for it to work
+                    let flip_horizontal_button = ImageButton::new(egui::include_image!("../assets/flip_horizontal.png"))
+                        .tint(egui::Color32::BLACK)
+                        .selected(self.flip_horizontal)
+                        .tooltip("Flip horizontal");
+                    if flip_horizontal_button.ui(ui).clicked() {
+                        self.flip_horizontal = !self.flip_horizontal;
+                    }
+                    let flip_vertical_button = ImageButton::new(egui::include_image!("../assets/flip_vertical.png"))
+                        .tint(egui::Color32::BLACK)
+                        .selected(self.flip_vertical)
+                        .tooltip("Flip vertical");
+                    if flip_vertical_button.ui(ui).clicked() {
+                        self.flip_vertical = !self.flip_vertical;
+                    }
                 });
-            self.image_display.update(ui);
+            let flip_vec = egui::vec2(
+                if self.flip_horizontal {-1.0} else {1.0}, 
+                if self.flip_vertical {-1.0} else {1.0}
+            );
+            self.image_display.update(ui, flip_vec);
         });
     }
 }

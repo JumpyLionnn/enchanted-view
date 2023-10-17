@@ -87,7 +87,7 @@ impl PanZoomImage {
         self.offset += before_zoom - after_zoom;
     }
 
-    pub fn update(&mut self, ui: &mut egui::Ui) {
+    pub fn update(&mut self, ui: &mut egui::Ui, flip: egui::Vec2) {
         const DEBUG: bool = false;
         // TODO: animate the scaling to be smooth
         let mouse_pos = ui.input(|input| input.pointer.latest_pos().unwrap_or(egui::pos2(0.0, 0.0))).to_vec2();
@@ -171,8 +171,8 @@ impl PanZoomImage {
             uv_max_y = (self.image_size.y + (rect.max.y - image_max.y) / self.scale) / self.image_size.y;
         }
         let uv = egui::Rect {
-            min: egui::pos2(uv_min_x, uv_min_y),
-            max: egui::pos2(uv_max_x, uv_max_y),
+            min: (egui::vec2(uv_min_x, uv_min_y) * flip).to_pos2(),
+            max: (egui::vec2(uv_max_x, uv_max_y) * flip).to_pos2(),
         };
 
         if self.last_image_rect != image_rect {

@@ -2,6 +2,7 @@ pub struct ImageButton<'a> {
     tint: egui::Color32,
     disabled_tint: Option<egui::Color32>,
     enabled: bool,
+    selected: bool,
     tooltip: Option<egui::WidgetText>,
     image: egui::ImageSource<'a>
 }
@@ -11,7 +12,8 @@ impl<'a> ImageButton<'a> {
         Self { 
             tint: egui::Color32::WHITE, 
             disabled_tint: None, 
-            enabled: true, 
+            enabled: true,
+            selected: false,
             tooltip: None, 
             image 
         }
@@ -37,10 +39,15 @@ impl<'a> ImageButton<'a> {
         self
     }
 
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+
     pub fn ui(self, ui: &mut egui::Ui) -> egui::Response {
         let image = egui::Image::new(self.image)
             .tint(if self.enabled {self.tint} else {self.disabled_tint.unwrap_or(self.tint)});
-        let button = egui::ImageButton::new(image);
+        let button = egui::ImageButton::new(image).selected(self.selected);
         let res = ui.add_enabled(self.enabled, button);
         if let Some(tooltip) = self.tooltip {
             res.on_hover_text(tooltip)
