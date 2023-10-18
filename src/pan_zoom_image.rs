@@ -1,10 +1,13 @@
 use egui::{Sense, Color32};
-use crate::egui_extensions::PainterEx;
+use crate::egui_extensions::{PainterEx, Vec2Ex};
 
 pub struct PanZoomImage {
     pub constrain_to_image: bool,
     pub always_center: bool,
     pub texture_handle: egui::TextureHandle,
+    // The actual texture dimensions
+    texture_size: egui::Vec2,
+    // image size will switch the axises on rotation
     image_size: egui::Vec2,
     offset: egui::Vec2,
     pub scale: f32,
@@ -12,11 +15,11 @@ pub struct PanZoomImage {
     last_rect: egui::Rect,
     last_image_rect: egui::Rect,
     min_scale: f32,
-    pub max_scale: f32
+    pub max_scale: f32,
 }
 
 impl PanZoomImage {
-    pub fn new(constrain_to_image: bool, always_center: bool, texture_handle: egui::TextureHandle, image_size: egui::Vec2) -> Self {
+    pub fn new(constrain_to_image: bool, always_center: bool, texture_handle: egui::TextureHandle, texture_size: egui::Vec2) -> Self {
         Self {
             constrain_to_image,
             always_center,
@@ -28,7 +31,8 @@ impl PanZoomImage {
             last_image_rect: egui::Rect { min: egui::pos2(0.0, 0.0), max: egui::pos2(0.0, 0.0) },
             min_scale: 0.0,
             max_scale: 32.0,
-            image_size
+            texture_size: texture_size,
+            image_size: texture_size
         }
     }
 
@@ -87,9 +91,17 @@ impl PanZoomImage {
         self.offset += before_zoom - after_zoom;
     }
 
-    pub fn update(&mut self, ui: &mut egui::Ui, flip: egui::Vec2) {
+    pub fn update(&mut self, ui: &mut egui::Ui, flip_horizontal: bool, flip_vertical: bool, rotation: usize) {
         const DEBUG: bool = false;
         // TODO: animate the scaling to be smooth
+
+        if rotation % 2 == 0 {
+            self.image_size = self.texture_size;
+        }
+        else {
+            self.image_size = egui::vec2(self.texture_size.y, self.texture_size.x);
+        }
+
         let mouse_pos = ui.input(|input| input.pointer.latest_pos().unwrap_or(egui::pos2(0.0, 0.0))).to_vec2();
 
         let (rect, res) = ui.allocate_at_least(ui.available_size(), Sense::drag());
@@ -100,7 +112,7 @@ impl PanZoomImage {
             // on first frame we set the min scale
             self.scale = self.min_scale;
         }
-        // input
+        // panning
         if res.dragged() {
             self.offset -=  res.drag_delta() / self.scale;
         }
@@ -152,8 +164,85 @@ impl PanZoomImage {
             min: image_min.to_pos2().clamp(rect.min, rect.max),
             max: image_max.to_pos2().clamp(rect.min, rect.max)
         };
-        
-        // calculating the uv of the texture to clip the invisible parts
+
+        if self.last_image_rect != image_rect {
+            self.regenerate_checkerboard(image_rect);
+            self.last_image_rect = image_rect;
+        }
+
+        // TODO: find a way to remove the clone
+        // A better way to do the checkers background is using texture tiling(in the shader) but this is not available in egui at the moment
+        // Waiting for issue #3481 in egui
+        let mesh = self.checkers_mesh.clone();
+        ui.painter().add(mesh);
+
+        let mesh = self.generate_image_mesh(image_min, image_max, image_rect, rect, flip_horizontal, flip_vertical, rotation);
+        ui.painter().add(egui::Shape::mesh(mesh));
+
+        if DEBUG {
+            ui.painter().debug_stroke(rect);
+            ui.painter().debug_stroke(image_rect);
+            ui.painter().debug_label(rect.min, format!("scale: {}, min: {}, max: {}", self.scale, self.min_scale, self.max_scale));
+        }
+    }
+
+    fn generate_image_mesh(&self, image_min: egui::Vec2, image_max: egui::Vec2, image_rect: egui::Rect, rect: egui::Rect, flip_horizontal: bool, flip_vertical: bool, rotation: usize) -> egui::Mesh {
+        use egui::epaint::Vertex;
+
+        let mut clipped = self.clipping_uv(image_min, image_max, rect);
+        // apply flipping
+        let max = clipped.max;
+        if flip_horizontal {
+            clipped.max.x = clipped.min.x;
+            clipped.min.x = max.x;
+        }
+        if flip_vertical {
+            clipped.max.y = clipped.min.y;
+            clipped.min.y = max.y;
+        }
+
+        // rotating
+        let uv_center = egui::vec2(0.5, 0.5);
+        let left_top = clipped.left_top().rotate90_around(uv_center, rotation);
+        let right_top = clipped.right_top().rotate90_around(uv_center, rotation);
+        let right_bottom = clipped.right_bottom().rotate90_around(uv_center, rotation);
+        let left_bottom = clipped.left_bottom().rotate90_around(uv_center, rotation);
+
+        let mut mesh = egui::Mesh::with_texture(self.texture_handle.id());
+        let idx = mesh.vertices.len() as u32;
+        mesh.reserve_triangles(2);
+        mesh.reserve_vertices(4);
+
+        mesh.add_triangle(idx + 0, idx + 1, idx + 2);
+        mesh.add_triangle(idx + 2, idx + 3, idx + 0);
+
+        mesh.vertices.push(Vertex {
+            pos: image_rect.left_top(),
+            uv: left_top,
+            color: Color32::WHITE,
+        });
+        mesh.vertices.push(Vertex {
+            pos: image_rect.right_top(),
+            uv: right_top,
+            color: Color32::WHITE,
+        });
+        mesh.vertices.push(Vertex {
+            pos: image_rect.right_bottom(),
+            uv: right_bottom,
+            color: Color32::WHITE,
+        });
+        mesh.vertices.push(Vertex {
+            pos: image_rect.left_bottom(),
+            uv: left_bottom,
+            color: Color32::WHITE,
+        });
+
+        mesh
+    }
+
+    
+
+    fn clipping_uv(&self, image_min: egui::Vec2, image_max: egui::Vec2, rect: egui::Rect) -> egui::Rect {
         let mut uv_min_x = 0.0;
         if image_min.x < rect.min.x {
             uv_min_x = ((rect.min.x - image_min.x) / self.scale) / self.image_size.x;
@@ -170,32 +259,12 @@ impl PanZoomImage {
         if image_max.y > rect.max.y {
             uv_max_y = (self.image_size.y + (rect.max.y - image_max.y) / self.scale) / self.image_size.y;
         }
-        let uv = egui::Rect {
-            min: (egui::vec2(uv_min_x, uv_min_y) * flip).to_pos2(),
-            max: (egui::vec2(uv_max_x, uv_max_y) * flip).to_pos2(),
-        };
 
-        if self.last_image_rect != image_rect {
-            self.regenerate_checkerboard(image_rect);
-            self.last_image_rect = image_rect;
+
+        egui::Rect {
+            min: (egui::vec2(uv_min_x, uv_min_y)).to_pos2(),
+            max: (egui::vec2(uv_max_x, uv_max_y)).to_pos2(),
         }
-
-        // TODO: find a way to remove the clone
-        // A better way to do the checkers background is using texture tiling(in the shader) but this is not available in egui at the moment
-        let mesh = self.checkers_mesh.clone();
-        ui.painter().add(mesh);
-
-        ui.painter().image(self.texture_handle.id(), image_rect, uv, egui::Color32::WHITE);
-
-        
-
-        if DEBUG {
-            ui.painter().debug_stroke(rect);
-            ui.painter().debug_stroke(image_rect);
-            ui.painter().debug_label(rect.min, format!("scale: {}, min: {}, max: {}", self.scale, self.min_scale, self.max_scale));
-        }
-       
-
     }
 
     fn regenerate_checkerboard(&mut self, area: egui::Rect) {
@@ -218,3 +287,4 @@ impl PanZoomImage {
         self.checkers_mesh = egui::Shape::mesh(mesh);
     }
 }
+

@@ -1,3 +1,6 @@
+use egui::TextureHandle;
+use image::{ImageResult, EncodableLayout};
+
 
 
 pub trait PainterEx {
@@ -17,5 +20,80 @@ impl PainterEx for egui::Painter {
     fn debug_label(&self, pos: egui::Pos2, text: impl ToString) {
         // TODO: add a better debug panel capabilities
         self.debug_text(pos, egui::Align2::LEFT_TOP, egui::Color32::WHITE, text);
+    }
+}
+
+pub trait ContextEx {
+    fn load_texture_raw(&self, name: &str, bytes: &[u8], options: egui::TextureOptions) -> ImageResult<TextureHandle>;
+    fn delta_time(&self) -> f32;
+}
+
+impl ContextEx for egui::Context {
+    fn load_texture_raw(&self, name: &str, bytes: &[u8], options: egui::TextureOptions) -> ImageResult<TextureHandle> {
+        let image = image::load_from_memory(bytes)?;
+        let rgba_image = image.to_rgba8();
+        let texture_image = egui::ColorImage::from_rgba_unmultiplied(
+            [rgba_image.width() as usize, rgba_image.height() as usize], 
+            rgba_image.as_bytes());
+        let handle = self.load_texture(name, texture_image, options);
+        Ok(handle)
+    }
+    fn delta_time(&self) -> f32 {
+        self.input(|input| input.stable_dt)
+    }
+}
+
+pub trait Vec2Ex {
+    fn rotate90_around(self, anchor: egui::Vec2, amount: usize) -> Self;
+}
+
+// amount x y
+// 0      + +
+// 1      + -
+// 2      - -
+// 3      - +
+// 4      + +
+// 5      + -
+// 6      - -
+impl Vec2Ex for egui::Vec2 {
+    fn rotate90_around(self, anchor: egui::Vec2, amount: usize) -> Self {
+        let switch = amount % 2 == 1;
+        
+        let sign = egui::vec2(
+            -(((amount as isize / 2) % 2) * 2 - 1) as f32, 
+            -((((amount as isize + 1) / 2) % 2) * 2 - 1) as f32
+        );
+        
+        let mut vec = if switch {
+            egui::vec2(self.y, self.x)
+        }
+        else {
+            egui::vec2(self.x, self.y)
+        } - anchor;
+        vec = vec * sign + anchor;
+
+        vec
+    }
+}
+
+impl Vec2Ex for egui::Pos2 {
+    fn rotate90_around(self, anchor: egui::Vec2, amount: usize) -> Self {
+        self.to_vec2().rotate90_around(anchor, amount).to_pos2()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn rotate90_around() {
+        // TODO: test the anchor
+        let vec = egui::vec2(10.0, 4.0);
+        assert_eq!(vec, vec.rotate90_around(egui::vec2(0.0, 0.0), 0));
+        assert_eq!(vec.rot90(), vec.rotate90_around(egui::vec2(0.0, 0.0), 1));
+        assert_eq!(vec.rot90().rot90(), vec.rotate90_around(egui::vec2(0.0, 0.0), 2));
+        assert_eq!(vec.rot90().rot90().rot90(), vec.rotate90_around(egui::vec2(0.0, 0.0), 3));
+        assert_eq!(vec.rot90().rot90().rot90().rot90(), vec.rotate90_around(egui::vec2(0.0, 0.0), 4));
+        assert_eq!(vec, vec.rotate90_around(egui::vec2(0.0, 0.0), 4));
     }
 }
