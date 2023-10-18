@@ -124,6 +124,7 @@ impl PanZoomImage {
         if scroll_delta.y < 0.0 {
             self.set_zoom(self.scale - self.scale * 0.1, mouse_pos);
         }
+        self.scale = self.scale.clamp(self.min_scale, self.max_scale);
 
         // calculating min and max offset to constrain the pan to the image boundaries
         if self.constrain_to_image {
