@@ -1,4 +1,4 @@
-use std::{path::PathBuf, io, fs};
+use std::{path::PathBuf, io, fs::{self, DirEntry}};
 
 use egui::{Layout, TextureFilter, TextureOptions, TextureHandle};
 use image::{DynamicImage, ImageResult, ImageError};
@@ -22,41 +22,63 @@ fn main() -> Result<(), eframe::Error> {
         Box::new(|cc| {
             // This gives us image support:
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            Box::new(EnchantedView::new(&cc.egui_ctx))
+            Box::new(EnchantedView::new(cc.egui_ctx.clone()))
         }),
     )
 }
 
+struct OpenedImage {
+    image: DynamicImage,
+    display: PanZoomImage
+}
+
+enum Direction {
+    Next,
+    Previous
+}
+
 struct EnchantedView {
-    image: Result<(DynamicImage, PanZoomImage), String>,
+    image: Result<OpenedImage, String>,
+    path: Option<PathBuf>,
     flip_horizontal: bool,
     flip_vertical: bool,
-    rotation: usize
+    rotation: usize,
+    context: egui::Context
 }
 
 impl EnchantedView {
-    fn new(context: &egui::Context) -> Self {
+    fn new(context: egui::Context) -> Self {
         context.style_mut(|style| {
             style.interaction.tooltip_delay = 0.5;
         });
         let texture_path = std::env::args_os().skip(1).next();
-        let image = match texture_path {
-            Some(path) => {
+        let (image, path) = match texture_path {
+            Some(path_value) => {
                 // TODO: Add an option to change the magnification texture filter
-                let load = context.load_texture_file(PathBuf::from(path.clone()), TextureOptions {
+                let load = context.load_texture_file(PathBuf::from(path_value.clone()), TextureOptions {
                     magnification: TextureFilter::Nearest,
                     minification: TextureFilter::Linear,
                 });
-                image_or_error(load, PathBuf::from(path))
+                let path = if load.as_ref().is_err_and(|error| {
+                    match error {
+                        ImageError::IoError(_) => true,
+                        _ => false
+                    }
+                }) || load.is_ok() {
+                    Some(PathBuf::from(path_value.clone()).canonicalize().expect("Couldn't find absolute path"))
+                } else { None };
+                (image_or_error(load, PathBuf::from(path_value)), path)
             },
-            None => Err("Unable to find image.".to_string()),
+            None => (Err("Unable to find image.".to_string()), None),
         };
-       
+        
         Self {
-            image: image,
+            image,
+            path,
             flip_horizontal: false,
             flip_vertical: false,
-            rotation: 0
+            rotation: 0,
+            context
         }
     }
     
@@ -88,11 +110,11 @@ impl EnchantedView {
         let zoom_in_button = ImageButton::new(egui::include_image!("../assets/zoom_in.png"))
             .tint(egui::Color32::BLACK)
             .disabled_tint(egui::Color32::DARK_GRAY)
-            .enabled(self.image.as_ref().is_ok_and(|(_, display)| display.can_zoom_in()))
+            .enabled(self.image.as_ref().is_ok_and(|opened_image| opened_image.display.can_zoom_in()))
             .tooltip("Zoom in");
         if zoom_in_button.ui(ui).clicked() {
-            if let Ok((_, display)) = &mut self.image {
-                display.zoom_in();
+            if let Ok(opened_image) = &mut self.image {
+                opened_image.display.zoom_in();
             }
         }
 
@@ -100,20 +122,20 @@ impl EnchantedView {
             egui::vec2(60.0, ui.available_height()),
             Layout::centered_and_justified(egui::Direction::LeftToRight),
             |ui| {
-                ui.set_enabled(false);
-                let text = format!("{:.2}%", self.image.as_ref().and_then(|(_, display)| Ok(display.scale)).unwrap_or(1.0) * 100.0);
+                ui.set_enabled(self.image.is_ok());
+                let text = format!("{:.2}%", self.image.as_ref().and_then(|opened_image| Ok(opened_image.display.scale)).unwrap_or(1.0) * 100.0);
                 DropDownMenu::new(text, "zoom_display")
                     .width(ui.available_width())
                     .menu_width(120.0)
                     .ui(ui, |ui| {
                         if ui.button("View actual size").clicked() {
-                            if let Ok((_, display)) = &mut self.image {
-                                display.zoom_to_fit();
+                            if let Ok(opened_image) = &mut self.image {
+                                opened_image.display.zoom_to_original();
                             }
                         }
                         if ui.button("Zoom to fit").clicked() {
-                            if let Ok((_, display)) = &mut self.image {
-                                display.zoom_to_fit();
+                            if let Ok(opened_image) = &mut self.image {
+                                opened_image.display.zoom_to_fit();
                             }
                         }
                     });
@@ -123,11 +145,11 @@ impl EnchantedView {
         let zoom_out_button = ImageButton::new(egui::include_image!("../assets/zoom_out.png"))
             .tint(egui::Color32::BLACK)
             .disabled_tint(egui::Color32::DARK_GRAY)
-            .enabled(self.image.as_ref().is_ok_and(|(_, display)| display.can_zoom_out()))
+            .enabled(self.image.as_ref().is_ok_and(|opened_image| opened_image.display.can_zoom_out()))
             .tooltip("Zoom out");
         if zoom_out_button.ui(ui).clicked() {
-            if let Ok((_, display)) = &mut self.image {
-                display.zoom_out();
+            if let Ok(opened_image) = &mut self.image {
+                opened_image.display.zoom_out();
             }
         }
     }
@@ -160,6 +182,45 @@ impl EnchantedView {
             self.rotation = (self.rotation + 1) % 4;
         }
     }
+
+    fn switch_image(&mut self, direction: Direction) {
+        if let Some(path) = self.path.as_ref() {
+            if let Ok(directory) = fs::read_dir(path.parent().expect("Couldn't get parent directory path")) {
+                let entries = directory.filter_map(|element| element.ok()).collect::<Vec<DirEntry>>();
+                let current_index = entries.iter().position(|entry| entry.path() == *path);
+                if let Some(current_index) = current_index {
+                    let find_predicate = |entry: &&DirEntry| {
+                        image::ImageFormat::from_path(entry.path()).is_ok()
+                    };
+                    let next_image = match direction {
+                        Direction::Next => entries.iter().skip(current_index + 1).find(find_predicate),
+                        Direction::Previous => entries.iter().rev().skip(entries.len() - current_index).find(find_predicate),
+                    };
+                    if let Some(entry) = next_image {
+                        // TODO: rotate around and make sure before there are more images to open
+                        // TODO: Preload textures to increase performance
+                        let load = self.context.load_texture_file(entry.path(), TextureOptions {
+                            magnification: TextureFilter::Nearest,
+                            minification: TextureFilter::Linear,
+                        });
+                        self.image = image_or_error(load, entry.path());
+                        self.path = Some(entry.path());
+                    }
+                }
+                else {
+                    eprintln!("ERROR: couldnt find the current image in the parent folder");
+                }
+            }
+        }
+    }
+
+    fn next_image(&mut self) {
+        self.switch_image(Direction::Next);
+    }
+
+    fn previous_image(&mut self) {
+        self.switch_image(Direction::Previous);
+    }
 }
 
 impl eframe::App for EnchantedView {
@@ -167,8 +228,60 @@ impl eframe::App for EnchantedView {
         egui::CentralPanel::default().show(ctx, |ui| {
             self.toolbar(ui);
             match &mut self.image {
-                Ok((_, display)) => {
-                    display.update(ui, self.flip_horizontal, self.flip_vertical, self.rotation);
+                Ok(opened_image) => {
+                    let res = opened_image.display.update(ui, self.flip_horizontal, self.flip_vertical, self.rotation);
+                    let rect = res.rect;
+                    let panels_width = 50.0;
+                    let arrow_height = 80.0;
+                    let left_rect = egui::Rect {
+                        min: rect.min,
+                        max: egui::pos2(rect.min.x + panels_width, rect.max.y)
+                    };
+                    let right_rect = egui::Rect {
+                        min: egui::pos2(rect.max.x - panels_width, rect.min.x),
+                        max: rect.max
+                    };
+
+                    let mouse_pos = ui.input(|input| input.pointer.hover_pos());
+                    let mut nav_buttons = ui.child_ui(rect, Layout::left_to_right(egui::Align::Center));
+                    nav_buttons.style_mut().visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
+                    nav_buttons.style_mut().visuals.widgets.hovered.weak_bg_fill = egui::Color32::TRANSPARENT;
+                    nav_buttons.style_mut().visuals.widgets.hovered.bg_fill = egui::Color32::TRANSPARENT;
+                    nav_buttons.style_mut().visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
+                    nav_buttons.style_mut().visuals.widgets.active.weak_bg_fill = egui::Color32::TRANSPARENT;
+                    nav_buttons.style_mut().visuals.widgets.active.bg_fill = egui::Color32::TRANSPARENT;
+
+                    if mouse_pos.is_some_and(|pos| left_rect.contains(pos)) {
+                        nav_buttons.allocate_ui_at_rect(left_rect, |ui| {
+                            ui.painter().rect_filled(left_rect, egui::Rounding::ZERO, egui::Color32::from_white_alpha(20));
+                            ui.centered_and_justified(|ui| {
+                                let res = ImageButton::new(egui::include_image!("../assets/arrow_left.png"))
+                                    .max_height(arrow_height)
+                                    .maintain_aspect_ratio(false)
+                                    .tint(egui::Color32::BLACK)
+                                    .ui(ui);
+                                if res.clicked() {
+                                    self.previous_image();
+                                }
+                            });
+                        });
+                    }
+
+                    if mouse_pos.is_some_and(|pos| right_rect.contains(pos)) {
+                        nav_buttons.allocate_ui_at_rect(right_rect, |ui| {
+                            ui.painter().rect_filled(right_rect, egui::Rounding::ZERO, egui::Color32::from_white_alpha(20));
+                            ui.centered_and_justified(|ui| {
+                                let res = ImageButton::new(egui::include_image!("../assets/arrow_right.png"))
+                                    .max_height(arrow_height)
+                                    .maintain_aspect_ratio(false)
+                                    .tint(egui::Color32::BLACK)
+                                    .ui(ui);
+                                if res.clicked() {
+                                    self.next_image();
+                                }
+                            });
+                        });
+                    }
                 },
                 Err(error) => {
                     ui.centered_and_justified(|ui| {
@@ -181,15 +294,15 @@ impl eframe::App for EnchantedView {
 }
 
 
-fn image_or_error(res: ImageResult<(TextureHandle, DynamicImage)>, path: PathBuf) -> Result<(DynamicImage, PanZoomImage), String> {
+fn image_or_error(res: ImageResult<(TextureHandle, DynamicImage)>, path: PathBuf) -> Result<OpenedImage, String> {
    
     match res {
         Ok((handle, image)) => {
             let image_size = egui::vec2(image.width() as f32, image.height() as f32);
-            Ok((
-                image,
-                PanZoomImage::new(true, true, handle, image_size)
-            ))
+            Ok(OpenedImage {
+                image: image, 
+                display: PanZoomImage::new(true, true, handle, image_size)
+                                  })
         },
         Err(error) => {
             match error {

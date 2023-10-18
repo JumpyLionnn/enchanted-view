@@ -91,7 +91,7 @@ impl PanZoomImage {
         self.offset += before_zoom - after_zoom;
     }
 
-    pub fn update(&mut self, ui: &mut egui::Ui, flip_horizontal: bool, flip_vertical: bool, rotation: usize) {
+    pub fn update(&mut self, ui: &mut egui::Ui, flip_horizontal: bool, flip_vertical: bool, rotation: usize) -> egui::Response {
         const DEBUG: bool = false;
         // TODO: animate the scaling to be smooth
 
@@ -184,6 +184,8 @@ impl PanZoomImage {
             ui.painter().debug_stroke(image_rect);
             ui.painter().debug_label(rect.min, format!("scale: {}, min: {}, max: {}", self.scale, self.min_scale, self.max_scale));
         }
+
+        res
     }
 
     fn generate_image_mesh(&self, image_min: egui::Vec2, image_max: egui::Vec2, image_rect: egui::Rect, rect: egui::Rect, flip_horizontal: bool, flip_vertical: bool, rotation: usize) -> egui::Mesh {
