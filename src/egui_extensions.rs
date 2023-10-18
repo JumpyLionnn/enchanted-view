@@ -1,5 +1,7 @@
+use std::path::PathBuf;
+
 use egui::TextureHandle;
-use image::{ImageResult, EncodableLayout};
+use image::{ImageResult, EncodableLayout, DynamicImage};
 
 
 
@@ -25,6 +27,7 @@ impl PainterEx for egui::Painter {
 
 pub trait ContextEx {
     fn load_texture_raw(&self, name: &str, bytes: &[u8], options: egui::TextureOptions) -> ImageResult<TextureHandle>;
+    fn load_texture_file(&self, path: PathBuf, options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)>;
     fn delta_time(&self) -> f32;
 }
 
@@ -38,6 +41,18 @@ impl ContextEx for egui::Context {
         let handle = self.load_texture(name, texture_image, options);
         Ok(handle)
     }
+    fn load_texture_file(&self, path: PathBuf, options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)> {
+        let name = path.to_string_lossy().to_string();
+        let image = image::open(path)?;
+        let rgba_image = image.to_rgba8();
+        let texture_image = egui::ColorImage::from_rgba_unmultiplied(
+            [rgba_image.width() as usize, rgba_image.height() as usize],
+            rgba_image.as_bytes(),
+        );
+        let handle = self.load_texture(name, texture_image, options);
+        Ok((handle, image))
+    }
+
     fn delta_time(&self) -> f32 {
         self.input(|input| input.stable_dt)
     }
