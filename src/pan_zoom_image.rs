@@ -4,7 +4,7 @@ use crate::egui_extensions::{PainterEx, Vec2Ex};
 pub struct PanZoomImage {
     pub constrain_to_image: bool,
     pub always_center: bool,
-    pub texture_handle: egui::TextureHandle,
+    texture_handle: egui::TextureHandle,
     // The actual texture dimensions
     texture_size: egui::Vec2,
     // image size will switch the axises on rotation
@@ -16,6 +16,7 @@ pub struct PanZoomImage {
     last_image_rect: egui::Rect,
     min_scale: f32,
     pub max_scale: f32,
+    fit_request: bool
 }
 
 impl PanZoomImage {
@@ -32,7 +33,8 @@ impl PanZoomImage {
             min_scale: 0.0,
             max_scale: 32.0,
             texture_size: texture_size,
-            image_size: texture_size
+            image_size: texture_size,
+            fit_request: true
         }
     }
 
@@ -108,9 +110,10 @@ impl PanZoomImage {
         self.last_rect = rect;
         // them min scale that the image can fit on the screen
         self.min_scale = self.calc_fit_scale(rect).min(1.0);
-        if ui.ctx().frame_nr() == 1 {
-            // on first frame we set the min scale
-            self.scale = self.min_scale;
+        if self.fit_request {
+            // when an image changes or on the first frame we change the scale of the image to fit
+            self.zoom_to_fit();
+            self.fit_request = false;
         }
         // panning
         if res.dragged() {
