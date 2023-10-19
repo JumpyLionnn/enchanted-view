@@ -14,6 +14,7 @@ use pan_zoom_image::PanZoomImage;
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         initial_window_size: Some(egui::vec2(600.0, 800.0)),
+        hardware_acceleration: eframe::HardwareAcceleration::Required,
         ..Default::default()
     };
     eframe::run_native(
@@ -32,6 +33,12 @@ struct OpenedImage {
     display: PanZoomImage
 }
 
+struct ImagePathInfo {
+    name: String,
+    index: usize,
+    children: Vec<PathBuf>
+}
+
 enum Direction {
     Next,
     Previous
@@ -39,7 +46,7 @@ enum Direction {
 
 struct EnchantedView {
     image: Result<OpenedImage, String>,
-    path: Option<PathBuf>,
+    path_info: Option<ImagePathInfo>,
     flip_horizontal: bool,
     flip_vertical: bool,
     rotation: usize,
@@ -55,7 +62,8 @@ impl EnchantedView {
         let (image, path) = match texture_path {
             Some(path_value) => {
                 // TODO: Add an option to change the magnification texture filter
-                let load = context.load_texture_file(PathBuf::from(path_value.clone()), TextureOptions {
+                let image_path = PathBuf::from(path_value.clone());
+                let load = context.load_texture_file(&image_path, TextureOptions {
                     magnification: TextureFilter::Nearest,
                     minification: TextureFilter::Linear,
                 });
@@ -65,22 +73,26 @@ impl EnchantedView {
                         _ => true
                     }
                 }) || load.is_ok() {
-                    Some(PathBuf::from(path_value.clone()).canonicalize().expect("Couldn't find absolute path"))
+                    let path = image_path.canonicalize().expect("Couldn't find absolute path");
+                    Some(find_sibling_images(&path))
                 } else { None };
-                (image_or_error(load, PathBuf::from(path_value)), path)
+                (image_or_error(load, &image_path), path)
             },
             None => (Err("Unable to find image.".to_string()), None),
         };
         
         Self {
             image,
-            path,
+            path_info: path,
             flip_horizontal: false,
             flip_vertical: false,
             rotation: 0,
             context
         }
     }
+
+   
+
     
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
@@ -177,33 +189,32 @@ impl EnchantedView {
     }
 
     fn switch_image(&mut self, direction: Direction) {
-        if let Some(path) = self.path.as_ref() {
-            if let Ok(directory) = fs::read_dir(path.parent().expect("Couldn't get parent directory path")) {
-                let entries = directory.filter_map(|element| element.ok()).collect::<Vec<DirEntry>>();
-                let current_index = entries.iter().position(|entry| entry.path() == *path);
-                if let Some(current_index) = current_index {
-                    let find_predicate = |entry: &&DirEntry| {
-                        image::ImageFormat::from_path(entry.path()).is_ok()
-                    };
-                    let next_image = match direction {
-                        Direction::Next => entries.iter().skip(current_index + 1).find(find_predicate),
-                        Direction::Previous => entries.iter().rev().skip(entries.len() - current_index).find(find_predicate),
-                    };
-                    if let Some(entry) = next_image {
-                        // TODO: rotate around and make sure before there are more images to open
-                        // TODO: Preload textures to increase performance
-                        let load = self.context.load_texture_file(entry.path(), TextureOptions {
-                            magnification: TextureFilter::Nearest,
-                            minification: TextureFilter::Linear,
-                        });
-                        self.image = image_or_error(load, entry.path());
-                        self.path = Some(entry.path());
+        if let Some(path_info) = self.path_info.as_mut() {
+            match direction {
+                Direction::Next => {
+                    if path_info.index == path_info.children.len() - 1 {
+                        path_info.index = 0;
                     }
-                }
-                else {
-                    eprintln!("ERROR: couldnt find the current image in the parent folder");
-                }
+                    else {
+                        path_info.index += 1;
+                    }
+                },
+                Direction::Previous => {
+                    if path_info.index == 0 {
+                        path_info.index = path_info.children.len() - 1;
+                    }
+                    else {
+                        path_info.index -= 1;
+                    }
+                },
             }
+            let new_path = &path_info.children[path_info.index];
+            let load = self.context.load_texture_file(new_path, TextureOptions {
+                magnification: TextureFilter::Nearest,
+                minification: TextureFilter::Linear,
+            });
+            path_info.name = new_path.file_name().expect("Couldn't extract the file name").to_string_lossy().to_string();
+            self.image = image_or_error(load, new_path);
         }
     }
 
@@ -215,7 +226,7 @@ impl EnchantedView {
             let res = ImageButton::new(egui::include_image!("../assets/arrow_left.png"))
                 .tint(egui::Color32::BLACK)
                 .disabled_tint(egui::Color32::DARK_GRAY)
-                .enabled(self.path.is_some())
+                .enabled(self.path_info.is_some())
                 .tooltip("Previous image")
                 .ui(ui);
             if res.clicked() {
@@ -225,15 +236,15 @@ impl EnchantedView {
                 let res = ImageButton::new(egui::include_image!("../assets/arrow_right.png"))
                     .tint(egui::Color32::BLACK)
                     .disabled_tint(egui::Color32::DARK_GRAY)
-                    .enabled(self.path.is_some())
+                    .enabled(self.path_info.is_some())
                     .tooltip("Next image")
                     .ui(ui);
                 if res.clicked() {
                     self.next_image();
                 }
-                if let Some(path) = &self.path {
+                if let Some(path_info) = &self.path_info {
                     ui.centered_and_justified(|ui| {
-                        ui.label( path.file_name().expect("The file name does not exist.").to_string_lossy());
+                        ui.label(format!("{} ({}/{})", &path_info.name, path_info.index + 1, path_info.children.len()));
                     });
                 }
                 
@@ -285,9 +296,30 @@ impl eframe::App for EnchantedView {
     }
 }
 
+fn find_sibling_images(image_path: &PathBuf) -> ImagePathInfo {
+    let parent = image_path.parent().expect("There isn't a parent path for the image path");
+    let image_entries = fs::read_dir(parent).expect("Couldn't read the parent dir")
+        .filter_map(|element| {
+            element.ok().and_then(|entry| {
+                if image::ImageFormat::from_path(entry.path()).is_ok() {
+                    Some(entry.path())
+                }
+                else {
+                    None
+                }
+            })
+        })
+        .collect::<Vec<PathBuf>>();
+    let current_index = image_entries.iter().position(|path| path == image_path).expect("Couldn't find the current image.");
+    ImagePathInfo { 
+        name: image_path.file_name().expect("Couldn't extract the file name").to_string_lossy().to_string(), 
+        index: current_index, 
+        children: image_entries 
+    }
+}
 
-fn image_or_error(res: ImageResult<(TextureHandle, DynamicImage)>, path: PathBuf) -> Result<OpenedImage, String> {
-   
+
+fn image_or_error(res: ImageResult<(TextureHandle, DynamicImage)>, path: &PathBuf) -> Result<OpenedImage, String> {
     match res {
         Ok((handle, image)) => {
             let image_size = egui::vec2(image.width() as f32, image.height() as f32);

@@ -27,7 +27,7 @@ impl PainterEx for egui::Painter {
 
 pub trait ContextEx {
     fn load_texture_raw(&self, name: &str, bytes: &[u8], options: egui::TextureOptions) -> ImageResult<TextureHandle>;
-    fn load_texture_file(&self, path: PathBuf, options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)>;
+    fn load_texture_file(&self, path: &PathBuf, options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)>;
     fn delta_time(&self) -> f32;
 }
 
@@ -41,7 +41,7 @@ impl ContextEx for egui::Context {
         let handle = self.load_texture(name, texture_image, options);
         Ok(handle)
     }
-    fn load_texture_file(&self, path: PathBuf, options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)> {
+    fn load_texture_file(&self, path: &PathBuf, options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)> {
         let name = path.to_string_lossy().to_string();
         let image = image::open(path)?;
         let rgba_image = image.to_rgba8();
