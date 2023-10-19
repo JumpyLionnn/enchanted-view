@@ -61,8 +61,8 @@ impl EnchantedView {
                 });
                 let path = if load.as_ref().is_err_and(|error| {
                     match error {
-                        ImageError::IoError(_) => true,
-                        _ => false
+                        ImageError::IoError(_) => false,
+                        _ => true
                     }
                 }) || load.is_ok() {
                     Some(PathBuf::from(path_value.clone()).canonicalize().expect("Couldn't find absolute path"))
@@ -90,15 +90,8 @@ impl EnchantedView {
             .with_main_align(egui::Align::Center)
             .with_cross_align(egui::Align::Center);
         ui.allocate_ui_with_layout(toolbar_size, toolbar_layout, |ui| {
-            // TODO: Adjust the styles based on the theme
-            ui.style_mut().visuals.widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
-            ui.style_mut().visuals.widgets.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
-            ui.style_mut().visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-            ui.style_mut().visuals.widgets.hovered.weak_bg_fill = egui::Color32::from_gray(230);
-            ui.style_mut().visuals.widgets.hovered.bg_fill = egui::Color32::TRANSPARENT;
-            ui.style_mut().visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
-            ui.style_mut().visuals.widgets.active.weak_bg_fill = egui::Color32::from_gray(200);
-            ui.style_mut().visuals.widgets.active.bg_fill = egui::Color32::TRANSPARENT;
+            
+            self.style_image_button(ui);
 
             self.zoom_control(ui);
             self.flip_control(ui);
@@ -214,6 +207,52 @@ impl EnchantedView {
         }
     }
 
+    fn bottom_bar(&mut self, ui: &mut egui::Ui) {
+        let bottom_bar_height = 30.0;
+
+        ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), bottom_bar_height), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            self.style_image_button(ui);
+            let res = ImageButton::new(egui::include_image!("../assets/arrow_left.png"))
+                .tint(egui::Color32::BLACK)
+                .disabled_tint(egui::Color32::DARK_GRAY)
+                .enabled(self.path.is_some())
+                .tooltip("Previous image")
+                .ui(ui);
+            if res.clicked() {
+                self.previous_image();
+            }
+            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                let res = ImageButton::new(egui::include_image!("../assets/arrow_right.png"))
+                    .tint(egui::Color32::BLACK)
+                    .disabled_tint(egui::Color32::DARK_GRAY)
+                    .enabled(self.path.is_some())
+                    .tooltip("Next image")
+                    .ui(ui);
+                if res.clicked() {
+                    self.next_image();
+                }
+                if let Some(path) = &self.path {
+                    ui.centered_and_justified(|ui| {
+                        ui.label( path.file_name().expect("The file name does not exist.").to_string_lossy());
+                    });
+                }
+                
+            });
+        });
+    }
+
+    fn style_image_button(&self, ui: &mut egui::Ui) {
+        // TODO: Adjust the styles based on the theme
+        ui.style_mut().visuals.widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
+        ui.style_mut().visuals.widgets.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
+        ui.style_mut().visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
+        ui.style_mut().visuals.widgets.hovered.weak_bg_fill = egui::Color32::from_gray(230);
+        ui.style_mut().visuals.widgets.hovered.bg_fill = egui::Color32::TRANSPARENT;
+        ui.style_mut().visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
+        ui.style_mut().visuals.widgets.active.weak_bg_fill = egui::Color32::from_gray(200);
+        ui.style_mut().visuals.widgets.active.bg_fill = egui::Color32::TRANSPARENT;
+    }
+
     fn next_image(&mut self) {
         self.switch_image(Direction::Next);
     }
@@ -227,68 +266,21 @@ impl eframe::App for EnchantedView {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             self.toolbar(ui);
-            match &mut self.image {
-                Ok(opened_image) => {
-                    let res = opened_image.display.update(ui, self.flip_horizontal, self.flip_vertical, self.rotation);
-                    let rect = res.rect;
-                    let panels_width = 50.0;
-                    let arrow_height = 80.0;
-                    let left_rect = egui::Rect {
-                        min: rect.min,
-                        max: egui::pos2(rect.min.x + panels_width, rect.max.y)
-                    };
-                    let right_rect = egui::Rect {
-                        min: egui::pos2(rect.max.x - panels_width, rect.min.x),
-                        max: rect.max
-                    };
-
-                    let mouse_pos = ui.input(|input| input.pointer.hover_pos());
-                    let mut nav_buttons = ui.child_ui(rect, Layout::left_to_right(egui::Align::Center));
-                    nav_buttons.style_mut().visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-                    nav_buttons.style_mut().visuals.widgets.hovered.weak_bg_fill = egui::Color32::TRANSPARENT;
-                    nav_buttons.style_mut().visuals.widgets.hovered.bg_fill = egui::Color32::TRANSPARENT;
-                    nav_buttons.style_mut().visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
-                    nav_buttons.style_mut().visuals.widgets.active.weak_bg_fill = egui::Color32::TRANSPARENT;
-                    nav_buttons.style_mut().visuals.widgets.active.bg_fill = egui::Color32::TRANSPARENT;
-
-                    if mouse_pos.is_some_and(|pos| left_rect.contains(pos)) {
-                        nav_buttons.allocate_ui_at_rect(left_rect, |ui| {
-                            ui.painter().rect_filled(left_rect, egui::Rounding::ZERO, egui::Color32::from_white_alpha(20));
-                            ui.centered_and_justified(|ui| {
-                                let res = ImageButton::new(egui::include_image!("../assets/arrow_left.png"))
-                                    .max_height(arrow_height)
-                                    .maintain_aspect_ratio(false)
-                                    .tint(egui::Color32::BLACK)
-                                    .ui(ui);
-                                if res.clicked() {
-                                    self.previous_image();
-                                }
-                            });
+            ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+                ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+                self.bottom_bar(ui);  
+                ui.separator(); 
+                match &mut self.image {
+                    Ok(opened_image) => {
+                        opened_image.display.update(ui, self.flip_horizontal, self.flip_vertical, self.rotation);
+                    },
+                    Err(error) => {
+                        ui.centered_and_justified(|ui| {
+                            ui.heading(format!("Couldnt load image: {error}"));
                         });
                     }
-
-                    if mouse_pos.is_some_and(|pos| right_rect.contains(pos)) {
-                        nav_buttons.allocate_ui_at_rect(right_rect, |ui| {
-                            ui.painter().rect_filled(right_rect, egui::Rounding::ZERO, egui::Color32::from_white_alpha(20));
-                            ui.centered_and_justified(|ui| {
-                                let res = ImageButton::new(egui::include_image!("../assets/arrow_right.png"))
-                                    .max_height(arrow_height)
-                                    .maintain_aspect_ratio(false)
-                                    .tint(egui::Color32::BLACK)
-                                    .ui(ui);
-                                if res.clicked() {
-                                    self.next_image();
-                                }
-                            });
-                        });
-                    }
-                },
-                Err(error) => {
-                    ui.centered_and_justified(|ui| {
-                        ui.heading(format!("Couldnt load image: {error}"));
-                    });
-                },
-            }
+                }
+            });
         });
     }
 }
