@@ -1,11 +1,13 @@
-use std::{path::PathBuf, io, fs::{self, DirEntry}};
+use std::{path::PathBuf, io, fs};
 
+use center_container::CenterContainer;
 use egui::{Layout, TextureFilter, TextureOptions, TextureHandle};
 use image::{DynamicImage, ImageResult, ImageError};
 mod drop_down_menu;
 mod egui_extensions;
 mod image_button;
 mod pan_zoom_image;
+mod center_container;
 use drop_down_menu::DropDownMenu;
 use egui_extensions::ContextEx;
 use image_button::ImageButton;
@@ -96,12 +98,9 @@ impl EnchantedView {
     
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
-        // TODO: center the toolbar horizontally
         let toolbar_size = egui::vec2(ui.available_width(), 30.0);
-        let toolbar_layout = egui::Layout::left_to_right(egui::Align::Min)
-            .with_main_align(egui::Align::Center)
-            .with_cross_align(egui::Align::Center);
-        ui.allocate_ui_with_layout(toolbar_size, toolbar_layout, |ui| {
+        let toolbar_layout = egui::Layout::left_to_right(egui::Align::Min);
+        CenterContainer::new(toolbar_size).inner_layout(toolbar_layout).ui(ui, |ui| {
             
             self.style_image_button(ui);
 
