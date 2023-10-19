@@ -44,12 +44,23 @@ impl ContextEx for egui::Context {
     fn load_texture_file(&self, path: &PathBuf, options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)> {
         let name = path.to_string_lossy().to_string();
         let image = image::open(path)?;
-        let rgba_image = image.to_rgba8();
-        let texture_image = egui::ColorImage::from_rgba_unmultiplied(
-            [rgba_image.width() as usize, rgba_image.height() as usize],
-            rgba_image.as_bytes(),
-        );
-        let handle = self.load_texture(name, texture_image, options);
+        let color_image = match &image {
+            DynamicImage::ImageRgb8(image) => {
+                // common case optimization
+                egui::ColorImage::from_rgb(
+                    [image.width() as usize, image.height() as usize],
+                    image.as_bytes(),
+                )
+            },
+            other => {
+                let image = other.to_rgba8();
+                egui::ColorImage::from_rgba_unmultiplied(
+                    [image.width() as usize, image.height() as usize],
+                    image.as_bytes(),
+                )
+            },
+        };
+        let handle = self.load_texture(name, color_image, options);
         Ok((handle, image))
     }
 
