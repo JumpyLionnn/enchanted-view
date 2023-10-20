@@ -28,6 +28,7 @@ impl PainterEx for egui::Painter {
 pub trait ContextEx {
     fn load_texture_raw(&self, name: &str, bytes: &[u8], options: egui::TextureOptions) -> ImageResult<TextureHandle>;
     fn load_texture_file(&self, path: &PathBuf, options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)>;
+    fn load_texture_from_image(&self, image: &DynamicImage, options: egui::TextureOptions, name: impl Into<String>) -> TextureHandle;
     fn delta_time(&self) -> f32;
 }
 
@@ -44,6 +45,11 @@ impl ContextEx for egui::Context {
     fn load_texture_file(&self, path: &PathBuf, options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)> {
         let name = path.to_string_lossy().to_string();
         let image = image::open(path)?;
+        let handle = self.load_texture_from_image(&image, options, name);
+        Ok((handle, image))
+    }
+
+    fn load_texture_from_image(&self, image: &DynamicImage, options: egui::TextureOptions, name: impl Into<String>) -> TextureHandle {
         let color_image = match &image {
             DynamicImage::ImageRgb8(image) => {
                 // common case optimization
@@ -61,7 +67,7 @@ impl ContextEx for egui::Context {
             },
         };
         let handle = self.load_texture(name, color_image, options);
-        Ok((handle, image))
+        handle
     }
 
     fn delta_time(&self) -> f32 {

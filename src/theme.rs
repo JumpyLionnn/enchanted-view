@@ -1,3 +1,4 @@
+use serde::{Serialize, Deserialize};
 
 
 pub struct ImageButtonStyle {
@@ -7,6 +8,23 @@ pub struct ImageButtonStyle {
     pub hover_bg: egui::Color32
 }
 
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub enum ThemeKind {
+    Light,
+    Dark
+}
+
+impl Default for ThemeKind {
+    fn default() -> Self {
+        let mode = dark_light::detect();
+        match mode {
+            dark_light::Mode::Dark => ThemeKind::Dark,
+            dark_light::Mode::Light => ThemeKind::Light,
+            dark_light::Mode::Default => ThemeKind::Light
+        }
+    }
+}
+
 pub struct Theme {
     visuals: egui::Visuals,
     checkerboard_pattern_colors: [egui::Color32; 2],
@@ -14,6 +32,13 @@ pub struct Theme {
 }
 
 impl Theme {
+    pub fn get(kind: ThemeKind) -> Self {
+        match kind {
+            ThemeKind::Light => Self::light(),
+            ThemeKind::Dark => Self::dark(),
+        }
+    }
+
     pub fn light() -> Self {
         Self { 
             visuals: egui::Visuals::light(), 
@@ -62,3 +87,4 @@ impl Theme {
         ui.style_mut().visuals.widgets.active.bg_fill = egui::Color32::TRANSPARENT;
     }
 }
+

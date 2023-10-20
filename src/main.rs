@@ -9,18 +9,21 @@ mod image_button;
 mod pan_zoom_image;
 mod button;
 mod center_container;
+mod select;
 mod theme;
+mod settings;
+use select::{select, RadioValue};
+use settings::Settings;
 use drop_down_menu::DropDownMenu;
 use egui_extensions::ContextEx;
 use image_button::ImageButton;
 use pan_zoom_image::PanZoomImage;
 use button::Button;
-use theme::Theme;
+use theme::{Theme, ThemeKind};
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         initial_window_size: Some(egui::vec2(600.0, 800.0)),
-        hardware_acceleration: eframe::HardwareAcceleration::Required,
         ..Default::default()
     };
     eframe::run_native(
@@ -57,12 +60,15 @@ struct EnchantedView {
     flip_vertical: bool,
     rotation: usize,
     context: egui::Context,
-    theme: Theme
+    theme: Theme,
+    settings_screen: bool,
+    settings: Settings
 }
 
 impl EnchantedView {
     fn new(context: egui::Context) -> Self {
-        let theme = Theme::dark();
+        let settings = Settings::load(&context);
+        let theme = Theme::get(settings.theme.clone());
         context.style_mut(|style| {
             style.interaction.tooltip_delay = 0.5;
             style.visuals = theme.visuals().clone();
@@ -70,10 +76,9 @@ impl EnchantedView {
         let texture_path = std::env::args_os().skip(1).next();
         let (image, path) = match texture_path {
             Some(path_value) => {
-                // TODO: Add an option to change the magnification texture filter
                 let image_path = PathBuf::from(path_value.clone());
                 let load = context.load_texture_file(&image_path, TextureOptions {
-                    magnification: TextureFilter::Nearest,
+                    magnification: settings.image_filtering,
                     minification: TextureFilter::Linear,
                 });
                 let path = if load.as_ref().is_err_and(|error| {
@@ -89,7 +94,6 @@ impl EnchantedView {
             },
             None => (Err("Unable to find image.".to_string()), None),
         };
-        
         Self {
             image,
             path_info: path,
@@ -97,7 +101,9 @@ impl EnchantedView {
             flip_vertical: false,
             rotation: 0,
             context,
-            theme
+            theme,
+            settings_screen: false,
+            settings
         }
     }
     
@@ -105,13 +111,22 @@ impl EnchantedView {
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         let toolbar_size = egui::vec2(ui.available_width(), 30.0);
         let toolbar_layout = egui::Layout::left_to_right(egui::Align::Min);
-        CenterContainer::new(toolbar_size).inner_layout(toolbar_layout).ui(ui, |ui| {
-            
+        ui.allocate_ui_with_layout(toolbar_size, toolbar_layout, |ui| {
             self.theme.style_image_button(ui);
-
-            self.zoom_control(ui);
-            self.flip_control(ui);
-            self.rotate_control(ui);
+            CenterContainer::new(toolbar_size).inner_layout(toolbar_layout).ui(ui, |ui| {
+                
+    
+                self.zoom_control(ui);
+                self.flip_control(ui);
+                self.rotate_control(ui);
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                let settings_button = ImageButton::new(egui::include_image!("../assets/settings.png"))
+                    .tint(self.theme.image_button().color);
+                if settings_button.ui(ui).clicked() {
+                    self.settings_screen = true;
+                }
+            });
         });
     }
 
@@ -217,7 +232,7 @@ impl EnchantedView {
             }
             let new_path = &path_info.children[path_info.index];
             let load = self.context.load_texture_file(new_path, TextureOptions {
-                magnification: TextureFilter::Nearest,
+                magnification: self.settings.image_filtering,
                 minification: TextureFilter::Linear,
             });
             path_info.name = new_path.file_name().expect("Couldn't extract the file name").to_string_lossy().to_string();
@@ -298,28 +313,90 @@ impl EnchantedView {
             }
         }
     }
+
+    
+
+    fn main_screen(&mut self, ui: &mut egui::Ui) {
+        self.toolbar(ui);
+        ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+            ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+            self.bottom_bar(ui);  
+            ui.separator(); 
+            match &mut self.image {
+                Ok(opened_image) => {
+                    opened_image.display.update(ui, self.flip_horizontal, self.flip_vertical, self.rotation);
+                },
+                Err(error) => {
+                    ui.centered_and_justified(|ui| {
+                        ui.heading(format!("Couldnt load image: {error}"));
+                    });
+                }
+            }
+        });
+        ui.input(|input| self.hotkeys(input));
+    }
+
+    fn update_theme(&mut self) {
+        self.theme = Theme::get(self.settings.theme.clone());
+        self.context.set_visuals(self.theme.visuals().clone());
+        if let Ok(image) = &mut self.image {
+            image.display.change_checkerboard_color(self.theme.checkerboard_pattern_colors());
+        }
+    }
+
+    fn reload_texture(&mut self) {
+        if let Ok(image) = &mut self.image {
+            let name = &self.path_info.as_ref().expect("The path info should be valid if the image is").name;
+            let options = TextureOptions { magnification: self.settings.image_filtering, minification: TextureFilter::Linear };
+            let handle = self.context.load_texture_from_image(&image.image, options, name);
+            image.display.texture_handle = handle;
+        }
+    }
+
+    fn settings_screen(&mut self, ui: &mut egui::Ui) {
+        let toolbar_size = egui::vec2(ui.available_width(), 30.0);
+        ui.allocate_ui_with_layout(toolbar_size, egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            self.theme.style_image_button(ui);
+            let back_button = ImageButton::new(egui::include_image!("../assets/back_arrow.png"))
+                .tint(self.theme.image_button().color)
+                .disabled_tint(self.theme.image_button().disabled_color)
+                .enabled(self.path_info.is_some())
+                .tooltip("Next image (Right arrow)");
+            if back_button.ui(ui).clicked() {
+                self.settings_screen = false;
+                self.settings.store(&self.context);
+            }
+            ui.heading("Settings");
+            // ui.label("Settings");
+        });
+
+        ui.label("Theme");
+        let theme_changed = select(ui, &mut self.settings.theme, vec![RadioValue::new("Light theme", ThemeKind::Light), RadioValue::new("Dark theme", ThemeKind::Dark)]);
+        if theme_changed {
+            self.update_theme();
+        }
+
+        ui.label("Texture filter");
+        let filter_options = vec![
+            RadioValue::new("Nearest, I want to see the pixels.", TextureFilter::Nearest), 
+            RadioValue::new("Linear, I want a smooth image.", TextureFilter::Linear)
+        ];
+        let filter_changed = select(ui, &mut self.settings.image_filtering, filter_options);
+        if filter_changed {
+            self.reload_texture();
+        }
+    }
 }
 
 impl eframe::App for EnchantedView {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.toolbar(ui);
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
-                self.bottom_bar(ui);  
-                ui.separator(); 
-                match &mut self.image {
-                    Ok(opened_image) => {
-                        opened_image.display.update(ui, self.flip_horizontal, self.flip_vertical, self.rotation);
-                    },
-                    Err(error) => {
-                        ui.centered_and_justified(|ui| {
-                            ui.heading(format!("Couldnt load image: {error}"));
-                        });
-                    }
-                }
-            });
-            ui.input(|input| self.hotkeys(input));
+            if self.settings_screen {
+                self.settings_screen(ui);
+            }
+            else {
+                self.main_screen(ui);
+            }
         });
     }
 }
@@ -391,3 +468,4 @@ fn image_or_error(res: ImageResult<(TextureHandle, DynamicImage)>, path: &PathBu
         },
     }
 }
+

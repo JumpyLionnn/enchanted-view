@@ -4,7 +4,7 @@ use crate::egui_extensions::{PainterEx, Vec2Ex};
 pub struct PanZoomImage {
     pub constrain_to_image: bool,
     pub always_center: bool,
-    texture_handle: egui::TextureHandle,
+    pub texture_handle: egui::TextureHandle,
     // The actual texture dimensions
     texture_size: egui::Vec2,
     // image size will switch the axises on rotation
