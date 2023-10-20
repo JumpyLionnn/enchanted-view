@@ -16,11 +16,12 @@ pub struct PanZoomImage {
     last_image_rect: egui::Rect,
     min_scale: f32,
     pub max_scale: f32,
-    fit_request: bool
+    fit_request: bool,
+    checkerboard_colors: [Color32; 2]
 }
 
 impl PanZoomImage {
-    pub fn new(constrain_to_image: bool, always_center: bool, texture_handle: egui::TextureHandle, texture_size: egui::Vec2) -> Self {
+    pub fn new(constrain_to_image: bool, always_center: bool, texture_handle: egui::TextureHandle, texture_size: egui::Vec2, checkerboard_colors: [Color32; 2]) -> Self {
         Self {
             constrain_to_image,
             always_center,
@@ -34,7 +35,8 @@ impl PanZoomImage {
             max_scale: 32.0,
             texture_size: texture_size,
             image_size: texture_size,
-            fit_request: true
+            fit_request: true,
+            checkerboard_colors: checkerboard_colors
         }
     }
 
@@ -65,6 +67,11 @@ impl PanZoomImage {
 
     pub fn can_zoom_out(&self) -> bool {
         self.scale > self.min_scale
+    }
+
+    pub fn change_checkerboard_color(&mut self, colors: [Color32; 2]) {
+        self.checkerboard_colors = colors;
+        self.last_image_rect = egui::Rect::ZERO;
     }
 
     fn world_to_screen(&self, world: egui::Vec2) -> egui::Vec2 {
@@ -286,7 +293,8 @@ impl PanZoomImage {
                     min: egui::pos2(x, y),
                     max: egui::pos2(x + RECT_SIZE, y + RECT_SIZE).min(area.max)
                 };
-                let color = if (row + column) % 2 == 0 {Color32::WHITE} else {Color32::LIGHT_GRAY};
+                // let color = if (row + column) % 2 == 0 {Color32::WHITE} else {Color32::LIGHT_GRAY};
+                let color = self.checkerboard_colors[((row + column) % 2) as usize];
                 mesh.add_colored_rect(rect, color);
             }
         }

@@ -9,11 +9,13 @@ mod image_button;
 mod pan_zoom_image;
 mod button;
 mod center_container;
+mod theme;
 use drop_down_menu::DropDownMenu;
 use egui_extensions::ContextEx;
 use image_button::ImageButton;
 use pan_zoom_image::PanZoomImage;
 use button::Button;
+use theme::Theme;
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
@@ -54,13 +56,16 @@ struct EnchantedView {
     flip_horizontal: bool,
     flip_vertical: bool,
     rotation: usize,
-    context: egui::Context
+    context: egui::Context,
+    theme: Theme
 }
 
 impl EnchantedView {
     fn new(context: egui::Context) -> Self {
+        let theme = Theme::dark();
         context.style_mut(|style| {
             style.interaction.tooltip_delay = 0.5;
+            style.visuals = theme.visuals().clone();
         });
         let texture_path = std::env::args_os().skip(1).next();
         let (image, path) = match texture_path {
@@ -80,7 +85,7 @@ impl EnchantedView {
                     let path = image_path.canonicalize().expect("Couldn't find absolute path");
                     Some(find_sibling_images(&path))
                 } else { None };
-                (image_or_error(load, &image_path), path)
+                (image_or_error(load, &image_path, &theme), path)
             },
             None => (Err("Unable to find image.".to_string()), None),
         };
@@ -91,7 +96,8 @@ impl EnchantedView {
             flip_horizontal: false,
             flip_vertical: false,
             rotation: 0,
-            context
+            context,
+            theme
         }
     }
     
@@ -101,7 +107,7 @@ impl EnchantedView {
         let toolbar_layout = egui::Layout::left_to_right(egui::Align::Min);
         CenterContainer::new(toolbar_size).inner_layout(toolbar_layout).ui(ui, |ui| {
             
-            self.style_image_button(ui);
+            self.theme.style_image_button(ui);
 
             self.zoom_control(ui);
             self.flip_control(ui);
@@ -111,8 +117,8 @@ impl EnchantedView {
 
     fn zoom_control(&mut self, ui: &mut egui::Ui) {
         let zoom_in_button = ImageButton::new(egui::include_image!("../assets/zoom_in.png"))
-            .tint(egui::Color32::BLACK)
-            .disabled_tint(egui::Color32::DARK_GRAY)
+            .tint(self.theme.image_button().color)
+            .disabled_tint(self.theme.image_button().disabled_color)
             .enabled(self.image.as_ref().is_ok_and(|opened_image| opened_image.display.can_zoom_in()))
             .tooltip("Zoom in (+)");
         if zoom_in_button.ui(ui).clicked() {
@@ -146,8 +152,8 @@ impl EnchantedView {
         );
 
         let zoom_out_button = ImageButton::new(egui::include_image!("../assets/zoom_out.png"))
-            .tint(egui::Color32::BLACK)
-            .disabled_tint(egui::Color32::DARK_GRAY)
+            .tint(self.theme.image_button().color)
+            .disabled_tint(self.theme.image_button().disabled_color)
             .enabled(self.image.as_ref().is_ok_and(|opened_image| opened_image.display.can_zoom_out()))
             .tooltip("Zoom out (-)");
         if zoom_out_button.ui(ui).clicked() {
@@ -159,7 +165,8 @@ impl EnchantedView {
 
     fn flip_control(&mut self, ui: &mut egui::Ui) {
         let flip_horizontal_button = ImageButton::new(egui::include_image!("../assets/flip_horizontal.png"))
-            .tint(egui::Color32::BLACK)
+            .tint(self.theme.image_button().color)
+            .disabled_tint(self.theme.image_button().disabled_color)
             .selected(self.flip_horizontal)
             .enabled(self.image.is_ok())
             .tooltip("Flip horizontal (H)");
@@ -167,7 +174,8 @@ impl EnchantedView {
             self.flip_horizontal = !self.flip_horizontal;
         }
         let flip_vertical_button = ImageButton::new(egui::include_image!("../assets/flip_vertical.png"))
-            .tint(egui::Color32::BLACK)
+            .tint(self.theme.image_button().color)
+            .disabled_tint(self.theme.image_button().disabled_color)
             .selected(self.flip_vertical)
             .enabled(self.image.is_ok())
             .tooltip("Flip vertical (V)");
@@ -178,7 +186,8 @@ impl EnchantedView {
 
     fn rotate_control(&mut self, ui: &mut egui::Ui) {
         let rotate_button = ImageButton::new(egui::include_image!("../assets/rotate.png"))
-            .tint(egui::Color32::BLACK)
+            .tint(self.theme.image_button().color)
+            .disabled_tint(self.theme.image_button().disabled_color)
             .enabled(self.image.is_ok())
             .tooltip("Rotate (R)");
         if rotate_button.ui(ui).clicked() {
@@ -212,7 +221,7 @@ impl EnchantedView {
                 minification: TextureFilter::Linear,
             });
             path_info.name = new_path.file_name().expect("Couldn't extract the file name").to_string_lossy().to_string();
-            self.image = image_or_error(load, new_path);
+            self.image = image_or_error(load, new_path, &self.theme);
         }
     }
 
@@ -220,10 +229,10 @@ impl EnchantedView {
         let bottom_bar_height = 30.0;
 
         ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), bottom_bar_height), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-            self.style_image_button(ui);
+            self.theme.style_image_button(ui);
             let res = ImageButton::new(egui::include_image!("../assets/arrow_left.png"))
-                .tint(egui::Color32::BLACK)
-                .disabled_tint(egui::Color32::DARK_GRAY)
+                .tint(self.theme.image_button().color)
+                .disabled_tint(self.theme.image_button().disabled_color)
                 .enabled(self.path_info.is_some())
                 .tooltip("Previous image (Left arrow)")
                 .ui(ui);
@@ -232,8 +241,8 @@ impl EnchantedView {
             }
             ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                 let res = ImageButton::new(egui::include_image!("../assets/arrow_right.png"))
-                    .tint(egui::Color32::BLACK)
-                    .disabled_tint(egui::Color32::DARK_GRAY)
+                    .tint(self.theme.image_button().color)
+                    .disabled_tint(self.theme.image_button().disabled_color)
                     .enabled(self.path_info.is_some())
                     .tooltip("Next image (Right arrow)")
                     .ui(ui);
@@ -248,18 +257,6 @@ impl EnchantedView {
                 
             });
         });
-    }
-
-    fn style_image_button(&self, ui: &mut egui::Ui) {
-        // TODO: Adjust the styles based on the theme
-        ui.style_mut().visuals.widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
-        ui.style_mut().visuals.widgets.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
-        ui.style_mut().visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-        ui.style_mut().visuals.widgets.hovered.weak_bg_fill = egui::Color32::from_gray(230);
-        ui.style_mut().visuals.widgets.hovered.bg_fill = egui::Color32::TRANSPARENT;
-        ui.style_mut().visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
-        ui.style_mut().visuals.widgets.active.weak_bg_fill = egui::Color32::from_gray(200);
-        ui.style_mut().visuals.widgets.active.bg_fill = egui::Color32::TRANSPARENT;
     }
 
     fn next_image(&mut self) {
@@ -350,14 +347,20 @@ fn find_sibling_images(image_path: &PathBuf) -> ImagePathInfo {
 }
 
 
-fn image_or_error(res: ImageResult<(TextureHandle, DynamicImage)>, path: &PathBuf) -> Result<OpenedImage, String> {
+fn image_or_error(res: ImageResult<(TextureHandle, DynamicImage)>, path: &PathBuf, theme: &Theme) -> Result<OpenedImage, String> {
     match res {
         Ok((handle, image)) => {
             let image_size = egui::vec2(image.width() as f32, image.height() as f32);
             Ok(OpenedImage {
                 image: image, 
-                display: PanZoomImage::new(true, true, handle, image_size)
-                                  })
+                display: PanZoomImage::new(
+                    true, 
+                    true, 
+                    handle, 
+                    image_size, 
+                    theme.checkerboard_pattern_colors()
+                )
+            })
         },
         Err(error) => {
             match error {
