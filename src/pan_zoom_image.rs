@@ -120,12 +120,14 @@ impl PanZoomImage {
             self.offset -=  res.drag_delta() / self.scale;
         }
         // zooming
-        let scroll_delta = ui.input(|input| input.scroll_delta);
-        if scroll_delta.y > 0.0 {
-            self.set_zoom(self.scale + self.scale * 0.1, mouse_pos);
-        }
-        if scroll_delta.y < 0.0 {
-            self.set_zoom(self.scale - self.scale * 0.1, mouse_pos);
+        if res.hovered() {
+            let scroll_delta = ui.input(|input| input.scroll_delta);
+            if scroll_delta.y > 0.0 {
+                self.set_zoom(self.scale + self.scale * 0.1, mouse_pos);
+            }
+            if scroll_delta.y < 0.0 {
+                self.set_zoom(self.scale - self.scale * 0.1, mouse_pos);
+            }
         }
         self.scale = self.scale.clamp(self.min_scale, self.max_scale);
 

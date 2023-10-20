@@ -7,11 +7,13 @@ mod drop_down_menu;
 mod egui_extensions;
 mod image_button;
 mod pan_zoom_image;
+mod button;
 mod center_container;
 use drop_down_menu::DropDownMenu;
 use egui_extensions::ContextEx;
 use image_button::ImageButton;
 use pan_zoom_image::PanZoomImage;
+use button::Button;
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
@@ -92,9 +94,6 @@ impl EnchantedView {
             context
         }
     }
-
-   
-
     
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
@@ -115,7 +114,7 @@ impl EnchantedView {
             .tint(egui::Color32::BLACK)
             .disabled_tint(egui::Color32::DARK_GRAY)
             .enabled(self.image.as_ref().is_ok_and(|opened_image| opened_image.display.can_zoom_in()))
-            .tooltip("Zoom in");
+            .tooltip("Zoom in (+)");
         if zoom_in_button.ui(ui).clicked() {
             if let Ok(opened_image) = &mut self.image {
                 opened_image.display.zoom_in();
@@ -132,12 +131,12 @@ impl EnchantedView {
                     .width(ui.available_width())
                     .menu_width(120.0)
                     .ui(ui, |ui| {
-                        if ui.button("View actual size").clicked() {
+                        if ui.add(Button::new("View actual size").shortcut_text("O")).clicked() {
                             if let Ok(opened_image) = &mut self.image {
                                 opened_image.display.zoom_to_original();
                             }
                         }
-                        if ui.button("Zoom to fit").clicked() {
+                        if ui.add(Button::new("Zoom to fit").shortcut_text("F")).clicked() {
                             if let Ok(opened_image) = &mut self.image {
                                 opened_image.display.zoom_to_fit();
                             }
@@ -150,7 +149,7 @@ impl EnchantedView {
             .tint(egui::Color32::BLACK)
             .disabled_tint(egui::Color32::DARK_GRAY)
             .enabled(self.image.as_ref().is_ok_and(|opened_image| opened_image.display.can_zoom_out()))
-            .tooltip("Zoom out");
+            .tooltip("Zoom out (-)");
         if zoom_out_button.ui(ui).clicked() {
             if let Ok(opened_image) = &mut self.image {
                 opened_image.display.zoom_out();
@@ -163,7 +162,7 @@ impl EnchantedView {
             .tint(egui::Color32::BLACK)
             .selected(self.flip_horizontal)
             .enabled(self.image.is_ok())
-            .tooltip("Flip horizontal");
+            .tooltip("Flip horizontal (H)");
         if flip_horizontal_button.ui(ui).clicked() {
             self.flip_horizontal = !self.flip_horizontal;
         }
@@ -171,7 +170,7 @@ impl EnchantedView {
             .tint(egui::Color32::BLACK)
             .selected(self.flip_vertical)
             .enabled(self.image.is_ok())
-            .tooltip("Flip vertical");
+            .tooltip("Flip vertical (V)");
         if flip_vertical_button.ui(ui).clicked() {
             self.flip_vertical = !self.flip_vertical;
         }
@@ -181,7 +180,7 @@ impl EnchantedView {
         let rotate_button = ImageButton::new(egui::include_image!("../assets/rotate.png"))
             .tint(egui::Color32::BLACK)
             .enabled(self.image.is_ok())
-            .tooltip("Rotate");
+            .tooltip("Rotate (R)");
         if rotate_button.ui(ui).clicked() {
             self.rotation = (self.rotation + 1) % 4;
         }
@@ -226,7 +225,7 @@ impl EnchantedView {
                 .tint(egui::Color32::BLACK)
                 .disabled_tint(egui::Color32::DARK_GRAY)
                 .enabled(self.path_info.is_some())
-                .tooltip("Previous image")
+                .tooltip("Previous image (Left arrow)")
                 .ui(ui);
             if res.clicked() {
                 self.previous_image();
@@ -236,7 +235,7 @@ impl EnchantedView {
                     .tint(egui::Color32::BLACK)
                     .disabled_tint(egui::Color32::DARK_GRAY)
                     .enabled(self.path_info.is_some())
-                    .tooltip("Next image")
+                    .tooltip("Next image (Right arrow)")
                     .ui(ui);
                 if res.clicked() {
                     self.next_image();
@@ -270,6 +269,38 @@ impl EnchantedView {
     fn previous_image(&mut self) {
         self.switch_image(Direction::Previous);
     }
+
+    fn hotkeys(&mut self, input: &egui::InputState) {
+        if input.key_pressed(egui::Key::ArrowRight) {
+            self.next_image();
+        }
+        if input.key_pressed(egui::Key::ArrowLeft) {
+            self.previous_image();
+        }
+        if let Ok(image) = &mut self.image {
+            if input.key_pressed(egui::Key::PlusEquals) {
+                image.display.zoom_in();
+            }
+            if input.key_pressed(egui::Key::Minus) {
+                image.display.zoom_out();
+            }
+            if input.key_pressed(egui::Key::F) {
+                image.display.zoom_to_fit();
+            }
+            if input.key_pressed(egui::Key::O) {
+                image.display.zoom_to_original();
+            }
+            if input.key_pressed(egui::Key::R) {
+                self.rotation = (self.rotation + 1) % 4;
+            }
+            if input.key_pressed(egui::Key::H) {
+                self.flip_horizontal = !self.flip_horizontal;
+            }
+            if input.key_pressed(egui::Key::V) {
+                self.flip_vertical = !self.flip_vertical;
+            }
+        }
+    }
 }
 
 impl eframe::App for EnchantedView {
@@ -291,6 +322,7 @@ impl eframe::App for EnchantedView {
                     }
                 }
             });
+            ui.input(|input| self.hotkeys(input));
         });
     }
 }
