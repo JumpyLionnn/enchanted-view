@@ -66,9 +66,9 @@ jobs:
           # with permissions to create releases in the other repo
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
-            bin/enchanted-view-linux/enchanted-view-linux
-            bin/enchanted-view-macos/enchanted-view-macos
-            bin/enchanted-view-windows/enchanted-view-windows.exe
+            bin/enchanted-view-linux/enchanted-view
+            bin/enchanted-view-macos/enchanted-view
+            bin/enchanted-view-windows/enchanted-view.exe
 
     
   
