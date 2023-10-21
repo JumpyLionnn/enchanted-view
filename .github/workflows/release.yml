@@ -21,15 +21,15 @@ jobs:
         include:
           - name: linux
             os: ubuntu-latest
-            artifact_path: target/debug/enchanted-view
+            artifact_path: target/dist/enchanted-view
             asset_name: enchanted-view-linux
           - name: windows
             os: windows-latest
-            artifact_path: target/debug/enchanted-view.exe
+            artifact_path: target/dist/enchanted-view.exe
             asset_name: enchanted-view-windows.exe
           - name: macos
             os: macos-latest
-            artifact_path: target/debug/enchanted-view
+            artifact_path: target/dist/enchanted-view
             asset_name: enchanted-view-macos
     steps:
       - name: checkout
@@ -40,11 +40,11 @@ jobs:
           toolchain: stable
           rustflags:
       - name: Build
-        run: cargo build --locked # debug for testing
-      - name: Rename
+        run: cargo build --profile dist --locked
+      - name: Rename # Renaming to avoid duplicate file names when uploading to the release
         run: mv ${{ matrix.artifact_path }} ${{ matrix.asset_name }}
       - name: Display structure of downloaded files
-        run: ls -R
+        run: ls -R # For debugging
       - name: Upload bin to action artifact
         uses: actions/upload-artifact@v3
         with:
@@ -60,14 +60,12 @@ jobs:
         with:
           path: bin
       - name: Display structure of downloaded files
-        run: ls -R
+        run: ls -R # For debugging
         working-directory: bin
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
           draft: true
-          # note you'll typically need to create a personal access token
-          # with permissions to create releases in the other repo
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
             bin/enchanted-view-linux/enchanted-view-linux
