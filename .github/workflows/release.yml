@@ -21,15 +21,15 @@ jobs:
         include:
           - name: linux
             os: ubuntu-latest
-            artifact_name: target/debug/enchanted-view
+            artifact_path: target/debug/enchanted-view
             asset_name: enchanted-view-linux
           - name: windows
             os: windows-latest
-            artifact_name: target/debug/enchanted-view.exe
-            asset_name: enchanted-view-windows
+            artifact_path: target/debug/enchanted-view.exe
+            asset_name: enchanted-view-windows.exe
           - name: macos
             os: macos-latest
-            artifact_name: target/debug/enchanted-view
+            artifact_path: target/debug/enchanted-view
             asset_name: enchanted-view-macos
     steps:
       - name: checkout
@@ -41,11 +41,15 @@ jobs:
           rustflags:
       - name: Build
         run: cargo build --locked # debug for testing
+      - name: Rename
+        run: mv ${{ matrix.artifact_path }} ${{ matrix.asset_name }}
+      - name: Display structure of downloaded files
+        run: ls -R
       - name: Upload bin to action artifact
         uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.asset_name }}
-          path: ${{ matrix.artifact_name }}
+          path: ${{ matrix.asset_name }}
   release:
     needs: build
     name: Release
@@ -66,9 +70,9 @@ jobs:
           # with permissions to create releases in the other repo
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
-            bin/enchanted-view-linux/enchanted-view
-            bin/enchanted-view-macos/enchanted-view
-            bin/enchanted-view-windows/enchanted-view.exe
+            bin/enchanted-view-linux/enchanted-view-linux
+            bin/enchanted-view-macos/enchanted-view-macos
+            bin/enchanted-view-windows.exe/enchanted-view-windows.exe
 
     
   
