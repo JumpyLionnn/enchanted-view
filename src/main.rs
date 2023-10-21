@@ -367,10 +367,7 @@ impl EnchantedView {
         ui.allocate_ui_with_layout(toolbar_size, egui::Layout::left_to_right(egui::Align::Center), |ui| {
             self.theme.style_image_button(ui);
             let back_button = ImageButton::new(egui::include_image!("../assets/back_arrow.png"))
-                .tint(self.theme.image_button().color)
-                .disabled_tint(self.theme.image_button().disabled_color)
-                .enabled(self.path_info.is_some())
-                .tooltip("Next image (Right arrow)");
+                .tint(self.theme.image_button().color);
             if back_button.ui(ui).clicked() {
                 self.settings_screen = false;
                 self.settings.store(&self.context);
