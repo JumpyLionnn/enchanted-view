@@ -10,10 +10,12 @@ impl<T: PartialEq> RadioValue<T> {
     }
 }
 
-pub fn select<T: PartialEq>(ui: &mut egui::Ui, value: &mut T, radios: Vec<RadioValue<T>>) -> bool {
+pub fn select<T: PartialEq>(ui: &mut egui::Ui, id: impl std::hash::Hash, value: &mut T, radios: Vec<RadioValue<T>>) -> bool {
     let mut res = false;
-    for radio in radios {
-        res = ui.radio_value(value, radio.value, radio.text).changed() || res;
-    }
+    ui.indent(egui::Id::new(id), |ui| {
+        for radio in radios {
+            res = ui.radio_value(value, radio.value, radio.text).changed() || res;
+        }
+    });
     res
 }

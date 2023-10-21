@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Serialize, Deserialize};
 
 
@@ -28,7 +30,7 @@ impl Default for ThemeKind {
 pub struct Theme {
     visuals: egui::Visuals,
     checkerboard_pattern_colors: [egui::Color32; 2],
-    image_button: ImageButtonStyle
+    image_button: ImageButtonStyle,
 }
 
 impl Theme {
@@ -40,8 +42,10 @@ impl Theme {
     }
 
     pub fn light() -> Self {
+        let mut visuals = egui::Visuals::light();
+        visuals.indent_has_left_vline = false;
         Self { 
-            visuals: egui::Visuals::light(), 
+            visuals: visuals, 
             checkerboard_pattern_colors: [egui::Color32::WHITE, egui::Color32::LIGHT_GRAY], 
             image_button: ImageButtonStyle { 
                 color: egui::Color32::BLACK, 
@@ -52,8 +56,10 @@ impl Theme {
         }
     }
     pub fn dark() -> Self {
+        let mut visuals = egui::Visuals::dark();
+        visuals.indent_has_left_vline = false;
         Self { 
-            visuals: egui::Visuals::dark(), 
+            visuals: visuals, 
             checkerboard_pattern_colors: [egui::Color32::from_gray(60), egui::Color32::DARK_GRAY], 
             image_button: ImageButtonStyle { 
                 color: egui::Color32::WHITE, 
@@ -62,6 +68,18 @@ impl Theme {
                 hover_bg: egui::Color32::from_gray(60)
             }
         }
+    }
+
+    pub fn text_style(&self) -> BTreeMap<egui::TextStyle, egui::FontId> {
+        [
+            (egui::TextStyle::Heading, egui::FontId::new(22.0, egui::FontFamily::Proportional)),
+            (egui::TextStyle::Name("Heading2".into()), egui::FontId::new(19.0, egui::FontFamily::Proportional)),
+            (egui::TextStyle::Name("ContextHeading".into()), egui::FontId::new(16.0, egui::FontFamily::Proportional)),
+            (egui::TextStyle::Body, egui::FontId::new(13.0, egui::FontFamily::Proportional)),
+            (egui::TextStyle::Monospace, egui::FontId::new(13.0, egui::FontFamily::Monospace)),
+            (egui::TextStyle::Button, egui::FontId::new(13.0, egui::FontFamily::Proportional)),
+            (egui::TextStyle::Small, egui::FontId::new(10.0, egui::FontFamily::Proportional)),
+        ].into()
     }
 
     pub fn visuals(&self) -> &egui::Visuals {
@@ -76,6 +94,14 @@ impl Theme {
         &self.image_button
     }
 
+    pub fn heading2(&self) -> egui::TextStyle {
+        egui::TextStyle::Name("Heading2".into())
+    }
+    
+    pub fn heading3(&self) -> egui::TextStyle {
+        egui::TextStyle::Name("ContextHeading".into())
+    }
+
     pub fn style_image_button(&self, ui: &mut egui::Ui) {
         ui.style_mut().visuals.widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
         ui.style_mut().visuals.widgets.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
@@ -87,4 +113,3 @@ impl Theme {
         ui.style_mut().visuals.widgets.active.bg_fill = egui::Color32::TRANSPARENT;
     }
 }
-

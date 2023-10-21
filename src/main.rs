@@ -2,6 +2,7 @@ use std::{path::PathBuf, io, fs};
 
 use center_container::CenterContainer;
 use egui::{Layout, TextureFilter, TextureOptions, TextureHandle};
+use hotkey::key_bind_widget;
 use image::{DynamicImage, ImageResult, ImageError};
 mod drop_down_menu;
 mod egui_extensions;
@@ -12,8 +13,9 @@ mod center_container;
 mod select;
 mod theme;
 mod settings;
+mod hotkey;
 use select::{select, RadioValue};
-use settings::Settings;
+use settings::{Settings, KeyBinds};
 use drop_down_menu::DropDownMenu;
 use egui_extensions::ContextEx;
 use image_button::ImageButton;
@@ -72,6 +74,7 @@ impl EnchantedView {
         context.style_mut(|style| {
             style.interaction.tooltip_delay = 0.5;
             style.visuals = theme.visuals().clone();
+            style.text_styles = theme.text_style();
         });
         let texture_path = std::env::args_os().skip(1).next();
         let (image, path) = match texture_path {
@@ -135,7 +138,7 @@ impl EnchantedView {
             .tint(self.theme.image_button().color)
             .disabled_tint(self.theme.image_button().disabled_color)
             .enabled(self.image.as_ref().is_ok_and(|opened_image| opened_image.display.can_zoom_in()))
-            .tooltip("Zoom in (+)");
+            .tooltip(format!("Zoom in ({})", ui.ctx().format_shortcut(&self.settings.key_binds.zoom_in)));
         if zoom_in_button.ui(ui).clicked() {
             if let Ok(opened_image) = &mut self.image {
                 opened_image.display.zoom_in();
@@ -152,12 +155,12 @@ impl EnchantedView {
                     .width(ui.available_width())
                     .menu_width(120.0)
                     .ui(ui, |ui| {
-                        if ui.add(Button::new("View actual size").shortcut_text("O")).clicked() {
+                        if ui.add(Button::new("View actual size").shortcut_text(ui.ctx().format_shortcut(&self.settings.key_binds.zoom_to_original))).clicked() {
                             if let Ok(opened_image) = &mut self.image {
                                 opened_image.display.zoom_to_original();
                             }
                         }
-                        if ui.add(Button::new("Zoom to fit").shortcut_text("F")).clicked() {
+                        if ui.add(Button::new("Zoom to fit").shortcut_text(ui.ctx().format_shortcut(&self.settings.key_binds.zoom_to_fit))).clicked() {
                             if let Ok(opened_image) = &mut self.image {
                                 opened_image.display.zoom_to_fit();
                             }
@@ -170,7 +173,7 @@ impl EnchantedView {
             .tint(self.theme.image_button().color)
             .disabled_tint(self.theme.image_button().disabled_color)
             .enabled(self.image.as_ref().is_ok_and(|opened_image| opened_image.display.can_zoom_out()))
-            .tooltip("Zoom out (-)");
+            .tooltip(format!("Zoom out ({})", ui.ctx().format_shortcut(&self.settings.key_binds.zoom_out)));
         if zoom_out_button.ui(ui).clicked() {
             if let Ok(opened_image) = &mut self.image {
                 opened_image.display.zoom_out();
@@ -184,7 +187,7 @@ impl EnchantedView {
             .disabled_tint(self.theme.image_button().disabled_color)
             .selected(self.flip_horizontal)
             .enabled(self.image.is_ok())
-            .tooltip("Flip horizontal (H)");
+            .tooltip(format!("Flip horizontal ({})", ui.ctx().format_shortcut(&self.settings.key_binds.flip_horizontal)));
         if flip_horizontal_button.ui(ui).clicked() {
             self.flip_horizontal = !self.flip_horizontal;
         }
@@ -193,7 +196,7 @@ impl EnchantedView {
             .disabled_tint(self.theme.image_button().disabled_color)
             .selected(self.flip_vertical)
             .enabled(self.image.is_ok())
-            .tooltip("Flip vertical (V)");
+            .tooltip(format!("Flip vertical ({})", ui.ctx().format_shortcut(&self.settings.key_binds.flip_vertical)));
         if flip_vertical_button.ui(ui).clicked() {
             self.flip_vertical = !self.flip_vertical;
         }
@@ -204,7 +207,7 @@ impl EnchantedView {
             .tint(self.theme.image_button().color)
             .disabled_tint(self.theme.image_button().disabled_color)
             .enabled(self.image.is_ok())
-            .tooltip("Rotate (R)");
+            .tooltip(format!("Rotate ({})", ui.ctx().format_shortcut(&self.settings.key_binds.rotate)));
         if rotate_button.ui(ui).clicked() {
             self.rotation = (self.rotation + 1) % 4;
         }
@@ -249,7 +252,7 @@ impl EnchantedView {
                 .tint(self.theme.image_button().color)
                 .disabled_tint(self.theme.image_button().disabled_color)
                 .enabled(self.path_info.is_some())
-                .tooltip("Previous image (Left arrow)")
+                .tooltip(format!("Previous image ({})", ui.ctx().format_shortcut(&self.settings.key_binds.previous_image)))
                 .ui(ui);
             if res.clicked() {
                 self.previous_image();
@@ -259,7 +262,7 @@ impl EnchantedView {
                     .tint(self.theme.image_button().color)
                     .disabled_tint(self.theme.image_button().disabled_color)
                     .enabled(self.path_info.is_some())
-                    .tooltip("Next image (Right arrow)")
+                    .tooltip(format!("Next image ({})", ui.ctx().format_shortcut(&self.settings.key_binds.next_image)))
                     .ui(ui);
                 if res.clicked() {
                     self.next_image();
@@ -282,33 +285,33 @@ impl EnchantedView {
         self.switch_image(Direction::Previous);
     }
 
-    fn hotkeys(&mut self, input: &egui::InputState) {
-        if input.key_pressed(egui::Key::ArrowRight) {
+    fn hotkeys(&mut self, ui: &mut egui::Ui) {
+        if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.next_image)) {
             self.next_image();
         }
-        if input.key_pressed(egui::Key::ArrowLeft) {
+        if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.previous_image)) {
             self.previous_image();
         }
         if let Ok(image) = &mut self.image {
-            if input.key_pressed(egui::Key::PlusEquals) {
+            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_in)) {
                 image.display.zoom_in();
             }
-            if input.key_pressed(egui::Key::Minus) {
+            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_out)) {
                 image.display.zoom_out();
             }
-            if input.key_pressed(egui::Key::F) {
+            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_to_fit)) {
                 image.display.zoom_to_fit();
             }
-            if input.key_pressed(egui::Key::O) {
+            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_to_original)) {
                 image.display.zoom_to_original();
             }
-            if input.key_pressed(egui::Key::R) {
+            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.rotate)) {
                 self.rotation = (self.rotation + 1) % 4;
             }
-            if input.key_pressed(egui::Key::H) {
+            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.flip_horizontal)) {
                 self.flip_horizontal = !self.flip_horizontal;
             }
-            if input.key_pressed(egui::Key::V) {
+            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.flip_vertical)) {
                 self.flip_vertical = !self.flip_vertical;
             }
         }
@@ -333,12 +336,15 @@ impl EnchantedView {
                 }
             }
         });
-        ui.input(|input| self.hotkeys(input));
+        self.hotkeys(ui);
     }
 
     fn update_theme(&mut self) {
         self.theme = Theme::get(self.settings.theme.clone());
-        self.context.set_visuals(self.theme.visuals().clone());
+        self.context.style_mut(|style| {
+            style.visuals = self.theme.visuals().clone();
+            style.text_styles = self.theme.text_style();
+        });
         if let Ok(image) = &mut self.image {
             image.display.change_checkerboard_color(self.theme.checkerboard_pattern_colors());
         }
@@ -367,11 +373,11 @@ impl EnchantedView {
                 self.settings.store(&self.context);
             }
             ui.heading("Settings");
-            // ui.label("Settings");
         });
 
+        ui.label(egui::RichText::new("Visuals").text_style(self.theme.heading2()));
         ui.label("Theme");
-        let theme_changed = select(ui, &mut self.settings.theme, vec![RadioValue::new("Light theme", ThemeKind::Light), RadioValue::new("Dark theme", ThemeKind::Dark)]);
+        let theme_changed = select(ui, "theme_select", &mut self.settings.theme, vec![RadioValue::new("Light theme", ThemeKind::Light), RadioValue::new("Dark theme", ThemeKind::Dark)]);
         if theme_changed {
             self.update_theme();
         }
@@ -381,10 +387,30 @@ impl EnchantedView {
             RadioValue::new("Nearest, I want to see the pixels.", TextureFilter::Nearest), 
             RadioValue::new("Linear, I want a smooth image.", TextureFilter::Linear)
         ];
-        let filter_changed = select(ui, &mut self.settings.image_filtering, filter_options);
+        let filter_changed = select(ui, "texture_filter_select", &mut self.settings.image_filtering, filter_options);
         if filter_changed {
             self.reload_texture();
         }
+
+        self.key_binds(ui);
+    }
+
+    fn key_binds(&mut self, ui: &mut egui::Ui) {
+        ui.label(egui::RichText::new("Key binds").text_style(self.theme.heading2()));
+        egui::Grid::new("key_binds_grid").show(ui, |ui| {
+            // changing the size so all key combinations will fit inside
+            ui.spacing_mut().interact_size = ui.spacing().interact_size * egui::vec2(2.1, 1.0);
+            let default_key_binds = KeyBinds::default();
+            key_bind_widget(ui, "Next image", &mut self.settings.key_binds.next_image, default_key_binds.next_image);
+            key_bind_widget(ui, "Previous image", &mut self.settings.key_binds.previous_image, default_key_binds.previous_image);
+            key_bind_widget(ui, "Zoom in", &mut self.settings.key_binds.zoom_in, default_key_binds.zoom_in);
+            key_bind_widget(ui, "Zoom out", &mut self.settings.key_binds.zoom_out, default_key_binds.zoom_out);
+            key_bind_widget(ui, "Zoom to fit", &mut self.settings.key_binds.zoom_to_fit, default_key_binds.zoom_to_fit);
+            key_bind_widget(ui, "Zoom to original", &mut self.settings.key_binds.zoom_to_original, default_key_binds.zoom_to_original);
+            key_bind_widget(ui, "Rotate", &mut self.settings.key_binds.rotate, default_key_binds.rotate);
+            key_bind_widget(ui, "Flip horizontal", &mut self.settings.key_binds.flip_horizontal, default_key_binds.flip_horizontal);
+            key_bind_widget(ui, "Flip vertical", &mut self.settings.key_binds.flip_vertical, default_key_binds.flip_vertical);
+        });
     }
 }
 
