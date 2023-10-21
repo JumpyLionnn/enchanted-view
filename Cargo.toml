@@ -15,3 +15,8 @@ image = { version = "0.24", features = [
   "png",
 ] }
 serde = "1.0.189"
+
+[profile.dist]
+inherits = "release"
+lto = true
+codegen-units = 1
