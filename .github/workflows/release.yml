@@ -40,7 +40,7 @@ jobs:
           toolchain: stable
           rustflags:
       - name: Build
-        run: cargo build --profile dist --locked
+        run: cargo build --locked # debug for testing
       - name: Upload binaries to action artifact
         uses: actions/upload-artifact@v3
         with:
@@ -51,6 +51,13 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: binaries
+      - name: Display structure of downloaded files
+        run: ls -R
+        working-directory: binaries
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
@@ -59,9 +66,9 @@ jobs:
           # with permissions to create releases in the other repo
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
-            enchanted-view-linux
-            enchanted-view-macos
-            enchanted-view-windows
+            binaries/enchanted-view-linux
+            binaries/enchanted-view-macos
+            binaries/enchanted-view-windows
 
     
   
