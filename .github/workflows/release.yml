@@ -41,7 +41,7 @@ jobs:
           rustflags:
       - name: Build
         run: cargo build --locked # debug for testing
-      - name: Upload binaries to action artifact
+      - name: Upload bin to action artifact
         uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.asset_name }}
@@ -54,10 +54,10 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v3
         with:
-          path: binaries
+          path: bin
       - name: Display structure of downloaded files
-        run: ls
-        working-directory: binaries
+        run: ls -R
+        working-directory: bin
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
@@ -66,9 +66,9 @@ jobs:
           # with permissions to create releases in the other repo
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
-            binaries/enchanted-view-linux
-            binaries/enchanted-view-macos
-            binaries/enchanted-view-windows
+            bin/enchanted-view-linux/enchanted-view-linux.zip
+            bin/enchanted-view-macos/enchanted-view-macos.zip
+            bin/enchanted-view-windows/enchanted-view-windows.zip
 
     
   
