@@ -3,7 +3,7 @@ The Next gen of image viewing built with Rust ;)
 
 ## Installation
 ### Download prebuilt binaries
-You can download prebuilt binaries in the (Releases)[https://github.com/JumpyLionnn/enchanted-view/releases/latest] page.
+You can download prebuilt binaries in the [Releases](https://github.com/JumpyLionnn/enchanted-view/releases/latest) page.
 Releases are available for the following platforms:
 - Linux
 - MacOS
