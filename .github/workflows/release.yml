@@ -20,19 +20,19 @@ jobs:
         include:
           - name: linux
             os: ubuntu-latest
-            artifact_name: target/dist/enchanted_view
-            asset_name: enchanted_view-linux
+            artifact_name: target/dist/enchanted-view
+            asset_name: enchanted-view-linux
           - name: windows
             os: windows-latest
-            artifact_name: target/dist/enchanted_view.exe
-            asset_name: enchanted_view-windows
+            artifact_name: target/dist/enchanted-view.exe
+            asset_name: enchanted-view-windows
           - name: macos
             os: macos-latest
-            artifact_name: target/dist/enchanted_view
-            asset_name: enchanted_view-macos
+            artifact_name: target/dist/enchanted-view
+            asset_name: enchanted-view-macos
 
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v4
 
     - uses: actions-rs/toolchain@v1
       with:
@@ -43,7 +43,7 @@ jobs:
       run: cargo build --profile dist --locked
 
     - name: Upload binaries to release
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.asset_name }}
         path: ${{ matrix.artifact_name }}
