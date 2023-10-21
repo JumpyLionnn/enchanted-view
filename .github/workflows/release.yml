@@ -1,13 +1,14 @@
 name: Release
-
+permissions:
+  contents: write
 on:
   push:
     tags:
       - '*'
 
 jobs:
-  publish:
-    name: Release for ${{ matrix.os }}
+  build:
+    name: Build for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -30,20 +31,34 @@ jobs:
             os: macos-latest
             artifact_name: target/dist/enchanted-view
             asset_name: enchanted-view-macos
-
     steps:
-    - uses: actions/checkout@v4
+      - name: checkout
+        uses: actions/checkout@v4
+      - name: setup rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Build
+        run: cargo build --release --locked
+      - name: Upload binaries to action artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.artifact_name }}
+  release:
+    needs: build
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: true
+          # note you'll typically need to create a personal access token
+          # with permissions to create releases in the other repo
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            enchanted-view-linux
+            enchanted-view-macos
+            enchanted-view-windows
 
-    - uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: stable
-
-    - name: Build
-      run: cargo build --profile dist --locked
-
-    - name: Upload binaries to release
-      uses: actions/upload-artifact@v3
-      with:
-        name: ${{ matrix.asset_name }}
-        path: ${{ matrix.artifact_name }}
+    
+  
