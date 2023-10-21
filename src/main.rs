@@ -26,6 +26,7 @@ use theme::{Theme, ThemeKind};
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         initial_window_size: Some(egui::vec2(600.0, 800.0)),
+        icon_data: Some(eframe::IconData::try_from_png_bytes(include_bytes!("../assets/icon.png")).expect("The icon should be valid.")),
         ..Default::default()
     };
     eframe::run_native(
