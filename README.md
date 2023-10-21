@@ -9,7 +9,7 @@ Releases are available for the following platforms:
 - MacOS
 - Windows
 ### Building from source
-1. To build from source you will need rustc and cargo installed. You can Install them (here)[https://www.rust-lang.org/tools/install]
+1. To build from source you will need rustc and cargo installed. You can Install them [here](https://www.rust-lang.org/tools/install)
 2. Clone the repository
    ```
     git clone https://github.com/JumpyLionnn/enchanted-view.git
