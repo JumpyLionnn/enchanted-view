@@ -1,6 +1,7 @@
 # Enchanted View
 The Next gen of image viewing built with Rust ;)
-
+![Showcase](./.github/showcase-dark.PNG#gh-dark-mode-only)
+![Showcase](./.github/showcase-light.PNG#gh-light-mode-only)
 ## Installation
 ### Download prebuilt binaries
 You can download prebuilt binaries in the [Releases](https://github.com/JumpyLionnn/enchanted-view/releases/latest) page.
