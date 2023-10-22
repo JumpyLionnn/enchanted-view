@@ -85,7 +85,7 @@ impl EnchantedView {
                     }
                 }) || load.is_ok() {
                     let path = image_path.canonicalize().expect("Couldn't find absolute path");
-                    Some(ImageDirectory::new(&path))
+                    Some(ImageDirectory::new(&path).expect("Unable to create the image directory"))
                 } else { None };
                 (image_or_error(load, &image_path, &theme), directory)
             },
@@ -393,6 +393,12 @@ impl EnchantedView {
 impl eframe::App for EnchantedView {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
+            if let Some(mut directory) = self.image_directory.take() {
+                if directory.check_for_changes() {
+                    self.load_image(directory.current_image_path());
+                }
+                self.image_directory = Some(directory);
+            }
             if self.settings_screen {
                 self.settings_screen(ui);
             }
