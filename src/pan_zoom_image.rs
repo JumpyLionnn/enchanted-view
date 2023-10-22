@@ -119,6 +119,14 @@ impl PanZoomImage {
         let mouse_pos = ui.input(|input| input.pointer.latest_pos().unwrap_or(egui::pos2(0.0, 0.0))).to_vec2();
 
         let (rect, res) = ui.allocate_at_least(ui.available_size(), Sense::drag());
+        let rect_change = self.last_rect.max - rect.max;
+        // changing the scale when the window resizes
+        if rect_change.x > rect_change.y {
+            self.scale -= (rect_change.x / rect.width()) * self.scale;
+        }
+        else {
+            self.scale -= (rect_change.y / rect.height()) * self.scale;
+        }
         self.last_rect = rect;
         // them min scale that the image can fit on the screen
         self.min_scale = self.calc_fit_scale(rect).min(1.0);
