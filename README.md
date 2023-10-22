@@ -19,6 +19,7 @@ Releases are available for the following platforms:
    ```
     cargo run -- path/to/image.png
    ```
+After it's installed you can set it as your default image viewer and it will just work.
 
 ## Features
 - pan and zoom (on pixel level)
