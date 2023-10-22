@@ -147,7 +147,7 @@ impl EnchantedView {
                 let text = format!("{:.2}%", self.image.as_ref().and_then(|opened_image| Ok(opened_image.display.scale)).unwrap_or(1.0) * 100.0);
                 DropDownMenu::new(text, "zoom_display")
                     .width(ui.available_width())
-                    .menu_width(120.0)
+                    .menu_width(130.0)
                     .ui(ui, |ui| {
                         if ui.add(Button::new("View actual size").shortcut_text(ui.ctx().format_shortcut(&self.settings.key_binds.zoom_to_original))).clicked() {
                             if let Ok(opened_image) = &mut self.image {
