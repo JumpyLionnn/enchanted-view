@@ -374,25 +374,26 @@ impl EnchantedView {
             }
             ui.heading("Settings");
         });
-
-        ui.label(egui::RichText::new("Visuals").text_style(self.theme.heading2()));
-        ui.label("Theme");
-        let theme_changed = select(ui, "theme_select", &mut self.settings.theme, vec![RadioValue::new("Light theme", ThemeKind::Light), RadioValue::new("Dark theme", ThemeKind::Dark)]);
-        if theme_changed {
-            self.update_theme();
-        }
-
-        ui.label("Texture filter");
-        let filter_options = vec![
-            RadioValue::new("Nearest, I want to see the pixels.", TextureFilter::Nearest), 
-            RadioValue::new("Linear, I want a smooth image.", TextureFilter::Linear)
-        ];
-        let filter_changed = select(ui, "texture_filter_select", &mut self.settings.image_filtering, filter_options);
-        if filter_changed {
-            self.reload_texture();
-        }
-
-        self.key_binds(ui);
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            ui.label(egui::RichText::new("Visuals").text_style(self.theme.heading2()));
+            ui.label("Theme");
+            let theme_changed = select(ui, "theme_select", &mut self.settings.theme, vec![RadioValue::new("Light theme", ThemeKind::Light), RadioValue::new("Dark theme", ThemeKind::Dark)]);
+            if theme_changed {
+                self.update_theme();
+            }
+    
+            ui.label("Texture filter");
+            let filter_options = vec![
+                RadioValue::new("Nearest, I want to see the pixels.", TextureFilter::Nearest), 
+                RadioValue::new("Linear, I want a smooth image.", TextureFilter::Linear)
+            ];
+            let filter_changed = select(ui, "texture_filter_select", &mut self.settings.image_filtering, filter_options);
+            if filter_changed {
+                self.reload_texture();
+            }
+    
+            self.key_binds(ui);
+        });
     }
 
     fn key_binds(&mut self, ui: &mut egui::Ui) {
