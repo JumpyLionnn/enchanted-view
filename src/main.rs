@@ -14,8 +14,10 @@ mod button;
 mod center_container;
 mod select;
 mod theme;
+mod image_directory;
 mod settings;
 mod hotkey;
+use image_directory::ImageDirectory;
 use select::{select, RadioValue};
 use settings::{Settings, KeyBinds};
 use drop_down_menu::DropDownMenu;
@@ -47,20 +49,9 @@ struct OpenedImage {
     display: PanZoomImage
 }
 
-struct ImagePathInfo {
-    name: String,
-    index: usize,
-    children: Vec<PathBuf>
-}
-
-enum Direction {
-    Next,
-    Previous
-}
-
 struct EnchantedView {
     image: Result<OpenedImage, String>,
-    path_info: Option<ImagePathInfo>,
+    image_directory: Option<ImageDirectory>,
     flip_horizontal: bool,
     flip_vertical: bool,
     rotation: usize,
@@ -80,29 +71,29 @@ impl EnchantedView {
             style.text_styles = theme.text_style();
         });
         let texture_path = std::env::args_os().skip(1).next();
-        let (image, path) = match texture_path {
+        let (image, directory) = match texture_path {
             Some(path_value) => {
                 let image_path = PathBuf::from(path_value.clone());
                 let load = context.load_texture_file(&image_path, TextureOptions {
                     magnification: settings.image_filtering,
                     minification: TextureFilter::Linear,
                 });
-                let path = if load.as_ref().is_err_and(|error| {
+                let directory = if load.as_ref().is_err_and(|error| {
                     match error {
                         ImageError::IoError(_) => false,
                         _ => true
                     }
                 }) || load.is_ok() {
                     let path = image_path.canonicalize().expect("Couldn't find absolute path");
-                    Some(find_sibling_images(&path))
+                    Some(ImageDirectory::new(&path))
                 } else { None };
-                (image_or_error(load, &image_path, &theme), path)
+                (image_or_error(load, &image_path, &theme), directory)
             },
             None => (Err("Unable to find image.".to_string()), None),
         };
         Self {
             image,
-            path_info: path,
+            image_directory: directory,
             flip_horizontal: false,
             flip_vertical: false,
             rotation: 0,
@@ -216,36 +207,6 @@ impl EnchantedView {
         }
     }
 
-    fn switch_image(&mut self, direction: Direction) {
-        if let Some(path_info) = self.path_info.as_mut() {
-            match direction {
-                Direction::Next => {
-                    if path_info.index == path_info.children.len() - 1 {
-                        path_info.index = 0;
-                    }
-                    else {
-                        path_info.index += 1;
-                    }
-                },
-                Direction::Previous => {
-                    if path_info.index == 0 {
-                        path_info.index = path_info.children.len() - 1;
-                    }
-                    else {
-                        path_info.index -= 1;
-                    }
-                },
-            }
-            let new_path = &path_info.children[path_info.index];
-            let load = self.context.load_texture_file(new_path, TextureOptions {
-                magnification: self.settings.image_filtering,
-                minification: TextureFilter::Linear,
-            });
-            path_info.name = new_path.file_name().expect("Couldn't extract the file name").to_string_lossy().to_string();
-            self.image = image_or_error(load, new_path, &self.theme);
-        }
-    }
-
     fn bottom_bar(&mut self, ui: &mut egui::Ui) {
         let bottom_bar_height = 30.0;
 
@@ -254,7 +215,7 @@ impl EnchantedView {
             let res = ImageButton::new(egui::include_image!("../assets/arrow_left.png"))
                 .tint(self.theme.image_button().color)
                 .disabled_tint(self.theme.image_button().disabled_color)
-                .enabled(self.path_info.is_some())
+                .enabled(self.image_directory.is_some())
                 .tooltip(format!("Previous image ({})", ui.ctx().format_shortcut(&self.settings.key_binds.previous_image)))
                 .ui(ui);
             if res.clicked() {
@@ -264,15 +225,15 @@ impl EnchantedView {
                 let res = ImageButton::new(egui::include_image!("../assets/arrow_right.png"))
                     .tint(self.theme.image_button().color)
                     .disabled_tint(self.theme.image_button().disabled_color)
-                    .enabled(self.path_info.is_some())
+                    .enabled(self.image_directory.is_some())
                     .tooltip(format!("Next image ({})", ui.ctx().format_shortcut(&self.settings.key_binds.next_image)))
                     .ui(ui);
                 if res.clicked() {
                     self.next_image();
                 }
-                if let Some(path_info) = &self.path_info {
+                if let Some(directory) = &self.image_directory {
                     ui.centered_and_justified(|ui| {
-                        ui.label(format!("{} ({}/{})", &path_info.name, path_info.index + 1, path_info.children.len()));
+                        ui.label(format!("{} ({}/{})", directory.image_name(), directory.image_index() + 1, directory.count()));
                     });
                 }
                 
@@ -280,12 +241,28 @@ impl EnchantedView {
         });
     }
 
+    fn load_image(&mut self, path: &PathBuf) {
+        let load = self.context.load_texture_file(path, TextureOptions {
+            magnification: self.settings.image_filtering,
+            minification: TextureFilter::Linear,
+        });
+        self.image = image_or_error(load, path, &self.theme);
+    }
+
     fn next_image(&mut self) {
-        self.switch_image(Direction::Next);
+        if let Some(mut directory) = self.image_directory.take() {
+            let path = directory.next_image();
+            self.load_image(path);
+            self.image_directory = Some(directory);
+        }
     }
 
     fn previous_image(&mut self) {
-        self.switch_image(Direction::Previous);
+        if let Some(mut directory) = self.image_directory.take() {
+            let path = directory.previous_image();
+            self.load_image(path);
+            self.image_directory = Some(directory);
+        }
     }
 
     fn hotkeys(&mut self, ui: &mut egui::Ui) {
@@ -320,8 +297,6 @@ impl EnchantedView {
         }
     }
 
-    
-
     fn main_screen(&mut self, ui: &mut egui::Ui) {
         self.toolbar(ui);
         ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
@@ -355,7 +330,7 @@ impl EnchantedView {
 
     fn reload_texture(&mut self) {
         if let Ok(image) = &mut self.image {
-            let name = &self.path_info.as_ref().expect("The path info should be valid if the image is").name;
+            let name = self.image_directory.as_ref().expect("The path info should be valid if the image is").image_name();
             let options = TextureOptions { magnification: self.settings.image_filtering, minification: TextureFilter::Linear };
             let handle = self.context.load_texture_from_image(&image.image, options, name);
             image.display.texture_handle = handle;
@@ -427,29 +402,6 @@ impl eframe::App for EnchantedView {
         });
     }
 }
-
-fn find_sibling_images(image_path: &PathBuf) -> ImagePathInfo {
-    let parent = image_path.parent().expect("There isn't a parent path for the image path");
-    let image_entries = fs::read_dir(parent).expect("Couldn't read the parent dir")
-        .filter_map(|element| {
-            element.ok().and_then(|entry| {
-                if image::ImageFormat::from_path(entry.path()).is_ok() {
-                    Some(entry.path())
-                }
-                else {
-                    None
-                }
-            })
-        })
-        .collect::<Vec<PathBuf>>();
-    let current_index = image_entries.iter().position(|path| path == image_path).expect("Couldn't find the current image.");
-    ImagePathInfo { 
-        name: image_path.file_name().expect("Couldn't extract the file name").to_string_lossy().to_string(), 
-        index: current_index, 
-        children: image_entries 
-    }
-}
-
 
 fn image_or_error(res: ImageResult<(TextureHandle, DynamicImage)>, path: &PathBuf, theme: &Theme) -> Result<OpenedImage, String> {
     match res {
