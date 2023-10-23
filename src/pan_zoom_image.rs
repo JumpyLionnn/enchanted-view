@@ -104,7 +104,7 @@ impl PanZoomImage {
         const DEBUG: bool = false;
         // TODO: animate the scaling to be smooth
 
-        let fit_scale = self.calc_fit_scale(self.last_image_rect);
+        let fit_scale = self.calc_fit_scale(self.last_rect);
         // Because of float rounding errors its not possible to just compare them with ==
         if (self.scale - fit_scale).abs() < 0.00001 {
             self.fit_request = true;
