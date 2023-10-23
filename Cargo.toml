@@ -15,6 +15,7 @@ image = { version = "0.24", features = [
   "png",
 ] }
 notify = "6.1.1"
+rfd = "0.12.1"
 serde = "1.0.189"
 
 [profile.dist]

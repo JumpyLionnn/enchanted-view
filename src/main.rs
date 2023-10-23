@@ -4,8 +4,9 @@ use std::{path::PathBuf, io, fs};
 
 use center_container::CenterContainer;
 use egui::{Layout, TextureFilter, TextureOptions, TextureHandle};
+use file_dialog::{FileDialogHandle, FileDialog};
 use hotkey::key_bind_widget;
-use image::{DynamicImage, ImageResult, ImageError};
+use image::{DynamicImage, ImageResult, ImageError, ImageFormat};
 mod drop_down_menu;
 mod egui_extensions;
 mod image_button;
@@ -17,7 +18,8 @@ mod theme;
 mod image_directory;
 mod settings;
 mod hotkey;
-use image_directory::ImageDirectory;
+mod file_dialog;
+use image_directory::{ImageDirectory, ImageFormatEx};
 use select::{select, RadioValue};
 use settings::{Settings, KeyBinds};
 use drop_down_menu::DropDownMenu;
@@ -58,7 +60,8 @@ struct EnchantedView {
     context: egui::Context,
     theme: Theme,
     settings_screen: bool,
-    settings: Settings
+    settings: Settings,
+    file_dialog: Option<FileDialogHandle>
 }
 
 impl EnchantedView {
@@ -100,7 +103,8 @@ impl EnchantedView {
             context,
             theme,
             settings_screen: false,
-            settings
+            settings,
+            file_dialog: None
         }
     }
     
@@ -297,7 +301,7 @@ impl EnchantedView {
         }
     }
 
-    fn main_screen(&mut self, ui: &mut egui::Ui) {
+    fn main_screen(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
         self.toolbar(ui);
         ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
@@ -308,8 +312,16 @@ impl EnchantedView {
                     opened_image.display.update(ui, self.flip_horizontal, self.flip_vertical, self.rotation);
                 },
                 Err(error) => {
-                    ui.centered_and_justified(|ui| {
-                        ui.heading(format!("Couldnt load image: {error}"));
+                    CenterContainer::new(ui.available_size()).inner_layout(egui::Layout::top_down(egui::Align::Center)).ui(ui, |ui| {
+                        ui.spacing_mut().button_padding = egui::vec2(20.0, 10.0);
+                        ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
+                        ui.label(egui::RichText::new(format!("Couldnt load image: {error}")).text_style(self.theme.heading2()));
+                        if ui.add(Button::new("Open a file...")).clicked() {
+                            let start_dir = self.image_directory.as_ref().and_then(|directory| Some(directory.current_directory_path()));
+                            let formats = ImageFormat::iterator().flat_map(|format| format.extensions_str());
+                            self.file_dialog = Some(FileDialog::new(frame).title("Choose an image").directory(start_dir).add_filter("Image Formats", &formats.collect::<Vec<&&str>>()).pick_file(ui.ctx()));
+                        }
+
                     });
                 }
             }
@@ -391,7 +403,13 @@ impl EnchantedView {
 }
 
 impl eframe::App for EnchantedView {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if let Some(handle) = self.file_dialog.as_ref() {
+            if let Some(path) = handle.file_picked() {
+                self.image_directory = Some(ImageDirectory::new(&path).expect("Unable to initialize the image directory."));
+                self.load_image(&path);
+            }
+        }
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(mut directory) = self.image_directory.take() {
                 if directory.check_for_changes() {
@@ -403,7 +421,7 @@ impl eframe::App for EnchantedView {
                 self.settings_screen(ui);
             }
             else {
-                self.main_screen(ui);
+                self.main_screen(ui, frame);
             }
         });
     }

@@ -19,11 +19,11 @@ impl CenterContainer {
         let id = ui.next_auto_id();
         let previous_size = ui.data(|data| data.get_temp(id)).unwrap_or(self.size);
         let sides = previous_size / 2.0;
-        let available_rect = ui.min_rect();
+        let available_rect = ui.available_rect_before_wrap();
         let half_size = self.size / 2.0;
         let rect = egui::Rect {
             min: available_rect.min + half_size - sides,
-            max: available_rect.min + self.size - half_size + sides
+            max: available_rect.min + self.size
         };
         let mut child_ui = ui.child_ui(rect, self.inner_layout);
         let ret = add_contents(&mut child_ui);

@@ -1,4 +1,5 @@
-use std::{path::{PathBuf, Path}, fs, sync::mpsc::{self, Receiver}};
+use std::{path::{PathBuf, Path}, fs, sync::mpsc::{self, Receiver}, slice::Iter};
+use image::ImageFormat;
 use notify::{Watcher, RecommendedWatcher, RecursiveMode, event::{CreateKind, Event, EventKind, RemoveKind, ModifyKind, RenameMode}};
 
 
@@ -39,6 +40,10 @@ impl ImageDirectory {
 
     pub fn current_image_path(&self) -> &PathBuf {
         &self.children[self.index]
+    }
+
+    pub fn current_directory_path(&self) -> PathBuf {
+        self.children[self.index].parent().expect("The parent path should exist.").to_path_buf()
     }
 
     pub fn count(&self) -> usize {
@@ -141,6 +146,33 @@ fn find_image_files(path: &Path) -> Vec<PathBuf> {
         .collect::<Vec<PathBuf>>()
 }
 
+pub trait ImageFormatEx {
+    fn iterator() -> Iter<'static, image::ImageFormat>;
+}
+
+impl ImageFormatEx for ImageFormat {
+    fn iterator() -> Iter<'static, ImageFormat> {
+        static FORMATS: [ImageFormat; 15] = [
+            ImageFormat::Avif, 
+            ImageFormat::Bmp, 
+            ImageFormat::Dds, 
+            ImageFormat::Farbfeld,
+            ImageFormat::Gif,
+            ImageFormat::Hdr,
+            ImageFormat::Ico,
+            ImageFormat::Jpeg,
+            ImageFormat::OpenExr,
+            ImageFormat::Png,
+            ImageFormat::Pnm,
+            ImageFormat::Qoi,
+            ImageFormat::Tga,
+            ImageFormat::Tiff,
+            ImageFormat::WebP
+        ];
+        FORMATS.iter()
+    }
+}
+
 enum Change {
     Create(PathBuf),
     Remove(PathBuf),
@@ -229,5 +261,5 @@ fn setup_watcher() -> notify::Result<(RecommendedWatcher, Receiver<Change>)> {
 }
 
 fn is_image_file(path: &PathBuf) -> bool {
-    image::ImageFormat::from_path(path).is_ok()
+    image::ImageFormat::from_path(path).is_ok_and(|format| format.can_read())
 }
