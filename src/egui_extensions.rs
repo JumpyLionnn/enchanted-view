@@ -26,21 +26,21 @@ impl PainterEx for egui::Painter {
 }
 
 pub trait ContextEx {
-    fn load_texture_raw(&self, name: &str, bytes: &[u8], options: egui::TextureOptions) -> ImageResult<TextureHandle>;
+    fn load_texture_raw(&self, name: &str, bytes: &[u8], options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)>;
     fn load_texture_file(&self, path: &PathBuf, options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)>;
     fn load_texture_from_image(&self, image: &DynamicImage, options: egui::TextureOptions, name: impl Into<String>) -> TextureHandle;
     fn delta_time(&self) -> f32;
 }
 
 impl ContextEx for egui::Context {
-    fn load_texture_raw(&self, name: &str, bytes: &[u8], options: egui::TextureOptions) -> ImageResult<TextureHandle> {
+    fn load_texture_raw(&self, name: &str, bytes: &[u8], options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)> {
         let image = image::load_from_memory(bytes)?;
         let rgba_image = image.to_rgba8();
         let texture_image = egui::ColorImage::from_rgba_unmultiplied(
             [rgba_image.width() as usize, rgba_image.height() as usize], 
             rgba_image.as_bytes());
         let handle = self.load_texture(name, texture_image, options);
-        Ok(handle)
+        Ok((handle, image))
     }
     fn load_texture_file(&self, path: &PathBuf, options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)> {
         let name = path.to_string_lossy().to_string();

@@ -10,7 +10,7 @@ pub struct ImageDirectory {
     children: Vec<PathBuf>,
     // for file system changes
     receiver: Receiver<Change>,
-    watcher: RecommendedWatcher
+    _watcher: RecommendedWatcher
 }
 
 impl ImageDirectory {
@@ -26,7 +26,7 @@ impl ImageDirectory {
             index: current_index,
             children: image_entries,
             receiver: receiver,
-            watcher
+            _watcher: watcher
         })
     }
 
@@ -260,6 +260,6 @@ fn setup_watcher() -> notify::Result<(RecommendedWatcher, Receiver<Change>)> {
     })?, receiver))
 }
 
-fn is_image_file(path: &PathBuf) -> bool {
+pub fn is_image_file(path: &PathBuf) -> bool {
     image::ImageFormat::from_path(path).is_ok_and(|format| format.can_read())
 }

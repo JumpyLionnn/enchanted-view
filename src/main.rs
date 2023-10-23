@@ -19,7 +19,7 @@ mod image_directory;
 mod settings;
 mod hotkey;
 mod file_dialog;
-use image_directory::{ImageDirectory, ImageFormatEx};
+use image_directory::{ImageDirectory, ImageFormatEx, is_image_file};
 use select::{select, RadioValue};
 use settings::{Settings, KeyBinds};
 use drop_down_menu::DropDownMenu;
@@ -253,6 +253,15 @@ impl EnchantedView {
         self.image = image_or_error(load, path, &self.theme);
     }
 
+    fn load_image_raw(&mut self, bytes: &[u8], path: &PathBuf) {
+        let name = path.to_string_lossy().to_string();
+        let load = self.context.load_texture_raw(&name, bytes, TextureOptions {
+            magnification: self.settings.image_filtering,
+            minification: TextureFilter::Linear,
+        });
+        self.image = image_or_error(load, path, &self.theme);
+    }
+
     fn next_image(&mut self) {
         if let Some(mut directory) = self.image_directory.take() {
             let path = directory.next_image();
@@ -301,30 +310,71 @@ impl EnchantedView {
         }
     }
 
+    fn handle_drop_files(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+        let hovered_file = ui.input(|input| {
+            input.raw.hovered_files
+                .iter()
+                .filter(|file| file.path.as_ref().is_some_and(is_image_file))
+                .next().cloned()
+        });
+        if let Some(hovered_file) = hovered_file {
+            let path = hovered_file.path.expect("The path must exist");
+            ui.painter().rect_filled(rect, egui::Rounding::ZERO, self.theme.strong_overlay_background());
+            ui.allocate_ui_at_rect(rect, |ui| {
+                CenterContainer::new(rect.size()).inner_layout(egui::Layout::top_down(egui::Align::Center)).ui(ui, |ui| {
+                    let text= format!("Open: {}", path.to_string_lossy());
+                    ui.label(egui::RichText::new(text).text_style(egui::TextStyle::Heading).color(self.theme.overlay_text_color()));
+                });
+            });
+            ui.ctx().request_repaint();
+        }
+        let dropped_file = ui.input(|input| {
+            input.raw.dropped_files
+                .iter()
+                .filter(|file| file.path.as_ref().is_some_and(is_image_file))
+                .next().cloned()
+        });
+        if let Some(dropped_file) = dropped_file {
+            let path = dropped_file.path.expect("The path must exist.");
+            self.image_directory = Some(ImageDirectory::new(&path).expect("Unable to initialize the image directory."));
+            if let Some(bytes) = dropped_file.bytes {
+                self.load_image_raw(&*bytes, &path);
+            }
+            else {
+                self.load_image(&path);
+                
+            }
+        }
+    }
+
     fn main_screen(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
         self.toolbar(ui);
         ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
             self.bottom_bar(ui);  
             ui.separator(); 
-            match &mut self.image {
+            let rect =  match &mut self.image {
                 Ok(opened_image) => {
-                    opened_image.display.update(ui, self.flip_horizontal, self.flip_vertical, self.rotation);
+                    opened_image.display.update(ui, self.flip_horizontal, self.flip_vertical, self.rotation).rect
                 },
                 Err(error) => {
                     CenterContainer::new(ui.available_size()).inner_layout(egui::Layout::top_down(egui::Align::Center)).ui(ui, |ui| {
-                        ui.spacing_mut().button_padding = egui::vec2(20.0, 10.0);
+                        ui.spacing_mut().button_padding = egui::vec2(15.0, 8.0);
                         ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
-                        ui.label(egui::RichText::new(format!("Couldnt load image: {error}")).text_style(self.theme.heading2()));
-                        if ui.add(Button::new("Open a file...")).clicked() {
+                        ui.label(egui::RichText::new(format!("Couldn't load image: {error}")).text_style(self.theme.heading2()));
+                        if ui.add(Button::new(egui::RichText::new("Open an image").text_style(self.theme.heading3()))).clicked() {
                             let start_dir = self.image_directory.as_ref().and_then(|directory| Some(directory.current_directory_path()));
                             let formats = ImageFormat::iterator().flat_map(|format| format.extensions_str());
                             self.file_dialog = Some(FileDialog::new(frame).title("Choose an image").directory(start_dir).add_filter("Image Formats", &formats.collect::<Vec<&&str>>()).pick_file(ui.ctx()));
                         }
+                        ui.label(egui::RichText::new("or").text_style(self.theme.heading3()));
+                        ui.label(egui::RichText::new("drag an image to the window.").text_style(self.theme.heading3()));
 
-                    });
+                    }).response.rect
                 }
-            }
+            };
+
+            self.handle_drop_files(ui, rect);
         });
         self.hotkeys(ui);
     }

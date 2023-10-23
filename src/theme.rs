@@ -31,6 +31,8 @@ pub struct Theme {
     visuals: egui::Visuals,
     checkerboard_pattern_colors: [egui::Color32; 2],
     image_button: ImageButtonStyle,
+    strong_overlay_background: egui::Color32,
+    overlay_text_color: egui::Color32
 }
 
 impl Theme {
@@ -52,7 +54,9 @@ impl Theme {
                 disabled_color: egui::Color32::DARK_GRAY,
                 active_bg: egui::Color32::from_gray(200),
                 hover_bg: egui::Color32::from_gray(230)
-            }
+            },
+            strong_overlay_background: egui::Color32::from_black_alpha(150),
+            overlay_text_color: egui::Color32::WHITE
         }
     }
     pub fn dark() -> Self {
@@ -66,7 +70,9 @@ impl Theme {
                 disabled_color: egui::Color32::LIGHT_GRAY,
                 active_bg: egui::Color32::from_gray(90),
                 hover_bg: egui::Color32::from_gray(60)
-            }
+            },
+            strong_overlay_background: egui::Color32::from_white_alpha(150),
+            overlay_text_color: egui::Color32::BLACK
         }
     }
 
@@ -88,6 +94,13 @@ impl Theme {
 
     pub fn checkerboard_pattern_colors(&self) -> [egui::Color32; 2] {
         self.checkerboard_pattern_colors
+    }
+
+    pub fn strong_overlay_background(&self) -> egui::Color32 {
+        self.strong_overlay_background
+    }
+    pub fn overlay_text_color(&self) -> egui::Color32 {
+        self.overlay_text_color
     }
 
     pub fn image_button(&self) -> &ImageButtonStyle {
