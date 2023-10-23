@@ -4,6 +4,7 @@ use std::{path::PathBuf, io, fs};
 
 use center_container::CenterContainer;
 use egui::{Layout, TextureFilter, TextureOptions, TextureHandle};
+use egui_extras::StripBuilder;
 use file_dialog::{FileDialogHandle, FileDialog};
 use hotkey::key_bind_widget;
 use image::{DynamicImage, ImageResult, ImageError, ImageFormat};
@@ -26,7 +27,7 @@ use drop_down_menu::DropDownMenu;
 use egui_extensions::ContextEx;
 use image_button::ImageButton;
 use pan_zoom_image::PanZoomImage;
-use button::Button;
+use button::{Button, close_button};
 use theme::{Theme, ThemeKind};
 
 fn main() -> Result<(), eframe::Error> {
@@ -61,7 +62,8 @@ struct EnchantedView {
     theme: Theme,
     settings_screen: bool,
     settings: Settings,
-    file_dialog: Option<FileDialogHandle>
+    file_dialog: Option<FileDialogHandle>,
+    color_analyzer: bool
 }
 
 impl EnchantedView {
@@ -104,7 +106,8 @@ impl EnchantedView {
             theme,
             settings_screen: false,
             settings,
-            file_dialog: None
+            file_dialog: None,
+            color_analyzer: false
         }
     }
     
@@ -115,11 +118,10 @@ impl EnchantedView {
         ui.allocate_ui_with_layout(toolbar_size, toolbar_layout, |ui| {
             self.theme.style_image_button(ui);
             CenterContainer::new(toolbar_size).inner_layout(toolbar_layout).ui(ui, |ui| {
-                
-    
                 self.zoom_control(ui);
                 self.flip_control(ui);
                 self.rotate_control(ui);
+                self.color_analyzer_control(ui);
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                 let settings_button = ImageButton::new(egui::include_image!("../assets/settings.png"))
@@ -210,6 +212,19 @@ impl EnchantedView {
             self.rotation = (self.rotation + 1) % 4;
         }
     }
+
+    fn color_analyzer_control(&mut self, ui: &mut egui::Ui) {
+        let color_analyzer_button = ImageButton::new(egui::include_image!("../assets/color.png"))
+            .tint(self.theme.image_button().color)
+            .disabled_tint(self.theme.image_button().disabled_color)
+            .enabled(self.image.is_ok())
+            .selected(self.color_analyzer)
+            .tooltip("Color Analyzer");
+        if color_analyzer_button.ui(ui).clicked() {
+            self.color_analyzer = !self.color_analyzer;
+        }
+    }
+
 
     fn bottom_bar(&mut self, ui: &mut egui::Ui) {
         let bottom_bar_height = 30.0;
@@ -347,6 +362,17 @@ impl EnchantedView {
         }
     }
 
+    fn color_analyzer(&mut self, ui: &mut egui::Ui) {
+        ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 50.0), egui::Layout::left_to_right(egui::Align::Min), |ui|{
+            if close_button(ui).clicked() {
+                self.color_analyzer = false;
+            }
+            ui.label("Color Analyzer");
+        });
+        // TODO: Remove, the separator is only here to allow the panel to resize
+        ui.separator();
+    }
+
     fn main_screen(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
         ui.spacing_mut().item_spacing.y = 0.0;
         self.toolbar(ui);
@@ -354,28 +380,39 @@ impl EnchantedView {
         ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
             self.bottom_bar(ui);  
             ui.separator(); 
-            let rect =  match &mut self.image {
-                Ok(opened_image) => {
-                    opened_image.display.update(ui, self.flip_horizontal, self.flip_vertical, self.rotation).rect
-                },
-                Err(error) => {
-                    CenterContainer::new(ui.available_size()).inner_layout(egui::Layout::top_down(egui::Align::Center)).ui(ui, |ui| {
-                        ui.spacing_mut().button_padding = egui::vec2(15.0, 8.0);
-                        ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
-                        ui.label(egui::RichText::new(format!("Couldn't load image: {error}")).text_style(self.theme.heading2()));
-                        if ui.add(Button::new(egui::RichText::new("Open an image").text_style(self.theme.heading3()))).clicked() {
-                            let start_dir = self.image_directory.as_ref().and_then(|directory| Some(directory.current_directory_path()));
-                            let formats = ImageFormat::iterator().flat_map(|format| format.extensions_str());
-                            self.file_dialog = Some(FileDialog::new(frame).title("Choose an image").directory(start_dir).add_filter("Image Formats", &formats.collect::<Vec<&&str>>()).pick_file(ui.ctx()));
-                        }
-                        ui.label(egui::RichText::new("or").text_style(self.theme.heading3()));
-                        ui.label(egui::RichText::new("drag an image to the window.").text_style(self.theme.heading3()));
-
-                    }).response.rect
-                }
-            };
-
-            self.handle_drop_files(ui, rect);
+            egui::SidePanel::right("color_analyzer")
+                .resizable(true)
+                .show_separator_line(true)
+                .min_width(150.0)
+                .default_width(200.0)
+                .max_width(300.0)
+                .show_animated_inside(ui, self.color_analyzer, |ui| {
+                    self.color_analyzer(ui);
+                });
+            egui::CentralPanel::default().show_inside(ui, |ui| {
+                let rect =  match &mut self.image {
+                    Ok(opened_image) => {
+                        opened_image.display.update(ui, self.flip_horizontal, self.flip_vertical, self.rotation).rect
+                    },
+                    Err(error) => {
+                        CenterContainer::new(ui.available_size()).inner_layout(egui::Layout::top_down(egui::Align::Center)).ui(ui, |ui| {
+                            ui.spacing_mut().button_padding = egui::vec2(15.0, 8.0);
+                            ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
+                            ui.label(egui::RichText::new(format!("Couldn't load image: {error}")).text_style(self.theme.heading2()));
+                            if ui.add(Button::new(egui::RichText::new("Open an image").text_style(self.theme.heading3()))).clicked() {
+                                let start_dir = self.image_directory.as_ref().and_then(|directory| Some(directory.current_directory_path()));
+                                let formats = ImageFormat::iterator().flat_map(|format| format.extensions_str());
+                                self.file_dialog = Some(FileDialog::new(frame).title("Choose an image").directory(start_dir).add_filter("Image Formats", &formats.collect::<Vec<&&str>>()).pick_file(ui.ctx()));
+                            }
+                            ui.label(egui::RichText::new("or").text_style(self.theme.heading3()));
+                            ui.label(egui::RichText::new("drag an image to the window.").text_style(self.theme.heading3()));
+    
+                        }).response.rect
+                    }
+                };
+    
+                self.handle_drop_files(ui, rect);
+            });
         });
         self.hotkeys(ui);
     }
