@@ -348,9 +348,10 @@ impl EnchantedView {
     }
 
     fn main_screen(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
+        ui.spacing_mut().item_spacing.y = 0.0;
         self.toolbar(ui);
+        ui.separator(); 
         ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-            ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
             self.bottom_bar(ui);  
             ui.separator(); 
             let rect =  match &mut self.image {
