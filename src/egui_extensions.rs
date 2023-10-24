@@ -6,12 +6,39 @@ use image::{ImageResult, EncodableLayout, DynamicImage};
 
 
 pub trait PainterEx {
+    fn rect_stroke_cropped(&self, rect: egui::Rect, bounds: egui::Rect, stroke: egui::Stroke);
     fn debug_stroke(&self, rect: egui::Rect);
     fn debug_line(&self, points: [egui::Pos2; 2]);
     fn debug_label(&self, pos: egui::Pos2, text: impl ToString);
 }
 
 impl PainterEx for egui::Painter {
+    fn rect_stroke_cropped(&self, rect: egui::Rect, bounds: egui::Rect, stroke: egui::Stroke) {
+        let stroke_rect = rect.expand(stroke.width / 2.0);
+        let top_stroke_width = rect.top() - (rect.top() - stroke.width).max(bounds.top());
+        if top_stroke_width > 0.0 {
+            self.line_segment([bounds.clamp(stroke_rect.left_top()), bounds.clamp(stroke_rect.right_top())], egui::Stroke::new(top_stroke_width, stroke.color));
+        }
+
+        let right_stroke_width = (stroke.width + rect.right()).min(bounds.right()) - rect.right();
+        if right_stroke_width > 0.0 {
+            self.line_segment([bounds.clamp(stroke_rect.right_top()), bounds.clamp(stroke_rect.right_bottom())], egui::Stroke::new(right_stroke_width, stroke.color));
+        }
+
+        let bottom_stroke_width = (stroke.width + rect.bottom()).min(bounds.bottom()) - rect.bottom();
+        if bottom_stroke_width > 0.0 {
+            self.line_segment([bounds.clamp(stroke_rect.right_bottom()), bounds.clamp(stroke_rect.left_bottom())], egui::Stroke::new(bottom_stroke_width, stroke.color));
+        }
+
+        let left_stroke_width =  rect.left() - (rect.left() - stroke.width).max(bounds.left());
+        if left_stroke_width > 0.0 {
+            self.line_segment([bounds.clamp(stroke_rect.left_bottom()), bounds.clamp(stroke_rect.left_top())], egui::Stroke::new(left_stroke_width, stroke.color));
+        }
+        // self.line_segment([stroke_rect.right_bottom(), stroke_rect.left_bottom()], stroke);
+        // self.line_segment([stroke_rect.left_bottom(), stroke_rect.left_top()], stroke);
+    }
+
+
     fn debug_stroke(&self, rect: egui::Rect) {
         self.rect_stroke(rect, egui::Rounding::ZERO, egui::Stroke::new(2.0, egui::Color32::GREEN));
     }
@@ -26,6 +53,7 @@ impl PainterEx for egui::Painter {
 }
 
 pub trait ContextEx {
+    fn rect_contains_pointer(&self, layer_id: egui::LayerId, rect: egui::Rect) -> bool;
     fn load_texture_raw(&self, name: &str, bytes: &[u8], options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)>;
     fn load_texture_file(&self, path: &PathBuf, options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)>;
     fn load_texture_from_image(&self, image: &DynamicImage, options: egui::TextureOptions, name: impl Into<String>) -> TextureHandle;
@@ -33,6 +61,18 @@ pub trait ContextEx {
 }
 
 impl ContextEx for egui::Context {
+
+    fn rect_contains_pointer(&self, layer_id: egui::LayerId, rect: egui::Rect) -> bool {
+        rect.is_positive() && {
+            let pointer_pos = self.input(|i| i.pointer.interact_pos());
+            if let Some(pointer_pos) = pointer_pos {
+                rect.contains(pointer_pos) && self.layer_id_at(pointer_pos) == Some(layer_id)
+            } else {
+                false
+            }
+        }
+    }
+
     fn load_texture_raw(&self, name: &str, bytes: &[u8], options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)> {
         let image = image::load_from_memory(bytes)?;
         let rgba_image = image.to_rgba8();

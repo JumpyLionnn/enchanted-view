@@ -1,5 +1,5 @@
 use egui::{Sense, Color32};
-use crate::egui_extensions::{PainterEx, Vec2Ex};
+use crate::egui_extensions::{ContextEx, PainterEx, Vec2Ex};
 
 pub struct PanZoomImage {
     pub constrain_to_image: bool,
@@ -74,6 +74,11 @@ impl PanZoomImage {
         self.last_image_rect = egui::Rect::ZERO;
     }
 
+    pub fn get_image_pixel_coords(&self, position: egui::Vec2) -> (u32, u32) {
+        let pos = self.screen_to_world(position) - self.last_rect.min.to_vec2();
+        (pos.x as u32, pos.y as u32)
+    }
+
     fn world_to_screen(&self, world: egui::Vec2) -> egui::Vec2 {
         egui::Vec2 {
             x: (world.x - self.offset.x) * self.scale, 
@@ -100,7 +105,7 @@ impl PanZoomImage {
         self.offset += before_zoom - after_zoom;
     }
 
-    pub fn update(&mut self, ui: &mut egui::Ui, flip_horizontal: bool, flip_vertical: bool, rotation: usize) -> egui::Response {
+    pub fn update(&mut self, ui: &mut egui::Ui, flip_horizontal: bool, flip_vertical: bool, rotation: usize, highlight_hovered_pixel: bool) -> egui::Response {
         const DEBUG: bool = false;
         // TODO: animate the scaling to be smooth
 
@@ -118,7 +123,7 @@ impl PanZoomImage {
 
         let mouse_pos = ui.input(|input| input.pointer.latest_pos().unwrap_or(egui::pos2(0.0, 0.0))).to_vec2();
 
-        let (rect, res) = ui.allocate_at_least(ui.available_size(), Sense::drag());
+        let (rect, mut res) = ui.allocate_at_least(ui.available_size(), Sense::drag());
         let rect_change = self.last_rect.max - rect.max;
         // changing the scale when the window resizes
         if rect_change.x > rect_change.y {
@@ -205,10 +210,20 @@ impl PanZoomImage {
         let mesh = self.generate_image_mesh(image_min, image_max, image_rect, rect, flip_horizontal, flip_vertical, rotation);
         ui.painter().add(egui::Shape::mesh(mesh));
 
+        let is_hovering = ui.ctx().rect_contains_pointer(ui.layer_id(), image_rect);
+        if highlight_hovered_pixel && is_hovering {
+            self.highlight_hovered_pixel(ui, image_rect);
+        }
+
         if DEBUG {
             ui.painter().debug_stroke(rect);
             ui.painter().debug_stroke(image_rect);
             ui.painter().debug_label(rect.min, format!("scale: {}, min: {}, max: {}", self.scale, self.min_scale, self.max_scale));
+        }
+        
+        res.hovered = is_hovering;
+        for button in &mut res.clicked {
+            *button &= res.hovered;
         }
         res
     }
@@ -294,6 +309,26 @@ impl PanZoomImage {
         }
     }
 
+    fn highlight_hovered_pixel(&self, ui: &mut egui::Ui, image_rect: egui::Rect) {
+        if let Some(pos) = ui.input(|i|i.pointer.interact_pos()) {
+            let min = self.world_to_screen(self.screen_to_world(pos.to_vec2()).floor());
+            let mut rect = egui::Rect::from_min_size(min.to_pos2(), egui::Vec2::splat(self.scale));
+            if self.scale > self.max_scale / 2.0 {
+                ui.painter().rect_stroke_cropped(rect, image_rect, egui::Stroke::new(1.0, egui::Color32::BLACK));
+                rect = rect.shrink(2.0);
+                ui.painter().rect_stroke_cropped(rect, image_rect, egui::Stroke::new(2.0, egui::Color32::WHITE));
+                rect = rect.shrink(1.0);
+                ui.painter().rect_stroke_cropped(rect, image_rect, egui::Stroke::new(1.0, egui::Color32::BLACK));
+            }
+            else if self.scale > 3.0 {
+                // No need to draw the indicator if the scale is too low
+                ui.painter().rect_stroke_cropped(rect, image_rect, egui::Stroke::new(1.0, egui::Color32::BLACK));
+                rect = rect.shrink(1.0);
+                ui.painter().rect_stroke_cropped(rect, image_rect, egui::Stroke::new(1.0, egui::Color32::WHITE));
+            }
+        }
+    }
+
     fn regenerate_checkerboard(&mut self, area: egui::Rect) {
         const RECT_SIZE: f32 = 8.0;
         let size = area.size();
@@ -315,4 +350,3 @@ impl PanZoomImage {
         self.checkers_mesh = egui::Shape::mesh(mesh);
     }
 }
-

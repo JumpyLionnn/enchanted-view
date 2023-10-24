@@ -21,7 +21,9 @@ pub struct KeyBinds {
     #[serde(with = "KeyboardShortcutRef")]
     pub flip_horizontal: egui::KeyboardShortcut,
     #[serde(with = "KeyboardShortcutRef")]
-    pub flip_vertical: egui::KeyboardShortcut
+    pub flip_vertical: egui::KeyboardShortcut,
+    #[serde(with = "KeyboardShortcutRef")]
+    pub pick_color: egui::KeyboardShortcut
 }
 
 impl Default for KeyBinds {
@@ -35,7 +37,8 @@ impl Default for KeyBinds {
             zoom_to_original: egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::O), 
             rotate: egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::R), 
             flip_horizontal: egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::H), 
-            flip_vertical: egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::V)
+            flip_vertical: egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::V),
+            pick_color: egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::P)
         }
     }
 }

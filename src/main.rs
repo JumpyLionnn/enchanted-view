@@ -3,11 +3,10 @@
 use std::{path::PathBuf, io, fs};
 
 use center_container::CenterContainer;
-use egui::{Layout, TextureFilter, TextureOptions, TextureHandle};
-use egui_extras::StripBuilder;
+use egui::{Layout, TextureFilter, TextureOptions, TextureHandle, Color32};
 use file_dialog::{FileDialogHandle, FileDialog};
 use hotkey::key_bind_widget;
-use image::{DynamicImage, ImageResult, ImageError, ImageFormat};
+use image::{DynamicImage, ImageResult, ImageError, ImageFormat, GenericImageView};
 mod drop_down_menu;
 mod egui_extensions;
 mod image_button;
@@ -52,6 +51,25 @@ struct OpenedImage {
     display: PanZoomImage
 }
 
+struct ColorAnalyzerOpenState {
+    picking_color: bool
+}
+
+struct ColorAnalyzerState {
+    open: Option<ColorAnalyzerOpenState>,
+    color: egui::Color32
+}
+
+impl ColorAnalyzerState {
+    fn is_open(&self) -> bool {
+        self.open.is_some()
+    }
+
+    fn is_picking_color(&self) -> bool {
+        self.open.as_ref().is_some_and(|opened_state| opened_state.picking_color)
+    }
+}
+
 struct EnchantedView {
     image: Result<OpenedImage, String>,
     image_directory: Option<ImageDirectory>,
@@ -63,7 +81,7 @@ struct EnchantedView {
     settings_screen: bool,
     settings: Settings,
     file_dialog: Option<FileDialogHandle>,
-    color_analyzer: bool
+    color_analyzer: ColorAnalyzerState
 }
 
 impl EnchantedView {
@@ -107,7 +125,7 @@ impl EnchantedView {
             settings_screen: false,
             settings,
             file_dialog: None,
-            color_analyzer: false
+            color_analyzer: ColorAnalyzerState { open: None, color: Color32::TRANSPARENT }
         }
     }
     
@@ -218,10 +236,15 @@ impl EnchantedView {
             .tint(self.theme.image_button().color)
             .disabled_tint(self.theme.image_button().disabled_color)
             .enabled(self.image.is_ok())
-            .selected(self.color_analyzer)
+            .selected(self.color_analyzer.is_open())
             .tooltip("Color Analyzer");
         if color_analyzer_button.ui(ui).clicked() {
-            self.color_analyzer = !self.color_analyzer;
+            if self.color_analyzer.is_open() {
+                self.color_analyzer.open = None;
+            }
+            else {
+                self.color_analyzer.open = Some(ColorAnalyzerOpenState { picking_color: false });
+            }
         }
     }
 
@@ -322,6 +345,14 @@ impl EnchantedView {
             if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.flip_vertical)) {
                 self.flip_vertical = !self.flip_vertical;
             }
+            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.pick_color)) {
+                if let Some(open_state) = self.color_analyzer.open.as_mut() {
+                    open_state.picking_color = !open_state.picking_color;
+                } 
+                else {
+                    self.color_analyzer.open = Some(ColorAnalyzerOpenState { picking_color: true });
+                }
+            }
         }
     }
 
@@ -363,14 +394,30 @@ impl EnchantedView {
     }
 
     fn color_analyzer(&mut self, ui: &mut egui::Ui) {
+        // Need to keep in mind that the color analyzer will be visible even if self.image_analyzer is none
+        // because of the animation.
         ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 50.0), egui::Layout::left_to_right(egui::Align::Min), |ui|{
             if close_button(ui).clicked() {
-                self.color_analyzer = false;
+                self.color_analyzer.open = None;
             }
             ui.label("Color Analyzer");
         });
-        // TODO: Remove, the separator is only here to allow the panel to resize
-        ui.separator();
+        ui.add_space(10.0);
+        let enabled = self.image.is_ok();
+        let image = egui::Image::new(egui::include_image!("../assets/color_picker.png"))
+            .tint(if enabled {self.theme.image_button().color} else {self.theme.image_button().disabled_color});
+        let pick_button = Button::image_and_text(image, "Pick Color")
+            .selected(self.color_analyzer.is_picking_color())
+            .shortcut_text(ui.ctx().format_shortcut(&self.settings.key_binds.pick_color));
+        if ui.add_enabled(enabled, pick_button).clicked() {
+            if let Some(open_state) = self.color_analyzer.open.as_mut() {
+                open_state.picking_color = !open_state.picking_color;
+            }
+        }
+
+        let (rect, _res) = ui.allocate_at_least(egui::vec2(ui.available_width(), 100.0), egui::Sense { click: false, drag: false, focusable: false });
+        ui.painter().rect_filled(rect, egui::Rounding::ZERO, self.color_analyzer.color);
+        
     }
 
     fn main_screen(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
@@ -386,13 +433,21 @@ impl EnchantedView {
                 .min_width(150.0)
                 .default_width(200.0)
                 .max_width(300.0)
-                .show_animated_inside(ui, self.color_analyzer, |ui| {
+                .show_animated_inside(ui, self.color_analyzer.is_open(), |ui| {
                     self.color_analyzer(ui);
                 });
             egui::CentralPanel::default().show_inside(ui, |ui| {
-                let rect =  match &mut self.image {
+                let res =  match &mut self.image {
                     Ok(opened_image) => {
-                        opened_image.display.update(ui, self.flip_horizontal, self.flip_vertical, self.rotation).rect
+                        let highlight_pixel = self.color_analyzer.is_picking_color();
+                        let res = opened_image.display.update(ui, self.flip_horizontal, self.flip_vertical, self.rotation, highlight_pixel);
+                        if res.clicked() && highlight_pixel {
+                            let hover_pos = res.hover_pos().expect("There must be a hover pos.");
+                            let (x, y) = opened_image.display.get_image_pixel_coords(hover_pos.to_vec2());
+                            let pixel = opened_image.image.get_pixel(x, y).0;
+                            self.color_analyzer.color = egui::Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], pixel[3]);
+                        }
+                        res
                     },
                     Err(error) => {
                         CenterContainer::new(ui.available_size()).inner_layout(egui::Layout::top_down(egui::Align::Center)).ui(ui, |ui| {
@@ -407,11 +462,12 @@ impl EnchantedView {
                             ui.label(egui::RichText::new("or").text_style(self.theme.heading3()));
                             ui.label(egui::RichText::new("drag an image to the window.").text_style(self.theme.heading3()));
     
-                        }).response.rect
+                        }).response
                     }
                 };
+                
     
-                self.handle_drop_files(ui, rect);
+                self.handle_drop_files(ui, res.rect);
             });
         });
         self.hotkeys(ui);
@@ -486,6 +542,7 @@ impl EnchantedView {
             key_bind_widget(ui, "Rotate", &mut self.settings.key_binds.rotate, default_key_binds.rotate);
             key_bind_widget(ui, "Flip horizontal", &mut self.settings.key_binds.flip_horizontal, default_key_binds.flip_horizontal);
             key_bind_widget(ui, "Flip vertical", &mut self.settings.key_binds.flip_vertical, default_key_binds.flip_vertical);
+            key_bind_widget(ui, "Pick color", &mut self.settings.key_binds.pick_color, default_key_binds.pick_color);
         });
     }
 }
