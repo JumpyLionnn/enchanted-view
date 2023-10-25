@@ -3,7 +3,8 @@
 use std::{path::PathBuf, io, fs};
 
 use center_container::CenterContainer;
-use egui::{Layout, TextureFilter, TextureOptions, TextureHandle, Color32};
+use color_analyzer::ColorAnalyzer;
+use egui::{Layout, TextureFilter, TextureOptions, TextureHandle};
 use file_dialog::{FileDialogHandle, FileDialog};
 use hotkey::key_bind_widget;
 use image::{DynamicImage, ImageResult, ImageError, ImageFormat, GenericImageView};
@@ -19,6 +20,8 @@ mod image_directory;
 mod settings;
 mod hotkey;
 mod file_dialog;
+mod checkerboard_pattern;
+mod color_analyzer;
 use image_directory::{ImageDirectory, ImageFormatEx, is_image_file};
 use select::{select, RadioValue};
 use settings::{Settings, KeyBinds};
@@ -26,7 +29,7 @@ use drop_down_menu::DropDownMenu;
 use egui_extensions::ContextEx;
 use image_button::ImageButton;
 use pan_zoom_image::PanZoomImage;
-use button::{Button, close_button};
+use button::Button;
 use theme::{Theme, ThemeKind};
 
 fn main() -> Result<(), eframe::Error> {
@@ -51,25 +54,6 @@ struct OpenedImage {
     display: PanZoomImage
 }
 
-struct ColorAnalyzerOpenState {
-    picking_color: bool
-}
-
-struct ColorAnalyzerState {
-    open: Option<ColorAnalyzerOpenState>,
-    color: egui::Color32
-}
-
-impl ColorAnalyzerState {
-    fn is_open(&self) -> bool {
-        self.open.is_some()
-    }
-
-    fn is_picking_color(&self) -> bool {
-        self.open.as_ref().is_some_and(|opened_state| opened_state.picking_color)
-    }
-}
-
 struct EnchantedView {
     image: Result<OpenedImage, String>,
     image_directory: Option<ImageDirectory>,
@@ -81,7 +65,7 @@ struct EnchantedView {
     settings_screen: bool,
     settings: Settings,
     file_dialog: Option<FileDialogHandle>,
-    color_analyzer: ColorAnalyzerState
+    color_analyzer: ColorAnalyzer
 }
 
 impl EnchantedView {
@@ -125,7 +109,7 @@ impl EnchantedView {
             settings_screen: false,
             settings,
             file_dialog: None,
-            color_analyzer: ColorAnalyzerState { open: None, color: Color32::TRANSPARENT }
+            color_analyzer: ColorAnalyzer::new()
         }
     }
     
@@ -239,12 +223,7 @@ impl EnchantedView {
             .selected(self.color_analyzer.is_open())
             .tooltip("Color Analyzer");
         if color_analyzer_button.ui(ui).clicked() {
-            if self.color_analyzer.is_open() {
-                self.color_analyzer.open = None;
-            }
-            else {
-                self.color_analyzer.open = Some(ColorAnalyzerOpenState { picking_color: false });
-            }
+            self.color_analyzer.toggle();
         }
     }
 
@@ -346,12 +325,7 @@ impl EnchantedView {
                 self.flip_vertical = !self.flip_vertical;
             }
             if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.pick_color)) {
-                if let Some(open_state) = self.color_analyzer.open.as_mut() {
-                    open_state.picking_color = !open_state.picking_color;
-                } 
-                else {
-                    self.color_analyzer.open = Some(ColorAnalyzerOpenState { picking_color: true });
-                }
+                self.color_analyzer.toggle_color_picker();
             }
         }
     }
@@ -393,40 +367,15 @@ impl EnchantedView {
         }
     }
 
-    fn color_analyzer(&mut self, ui: &mut egui::Ui) {
-        // Need to keep in mind that the color analyzer will be visible even if self.image_analyzer is none
-        // because of the animation.
-        ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 50.0), egui::Layout::left_to_right(egui::Align::Min), |ui|{
-            if close_button(ui).clicked() {
-                self.color_analyzer.open = None;
-            }
-            ui.label("Color Analyzer");
-        });
-        ui.add_space(10.0);
-        let enabled = self.image.is_ok();
-        let image = egui::Image::new(egui::include_image!("../assets/color_picker.png"))
-            .tint(if enabled {self.theme.image_button().color} else {self.theme.image_button().disabled_color});
-        let pick_button = Button::image_and_text(image, "Pick Color")
-            .selected(self.color_analyzer.is_picking_color())
-            .shortcut_text(ui.ctx().format_shortcut(&self.settings.key_binds.pick_color));
-        if ui.add_enabled(enabled, pick_button).clicked() {
-            if let Some(open_state) = self.color_analyzer.open.as_mut() {
-                open_state.picking_color = !open_state.picking_color;
-            }
-        }
-
-        let (rect, _res) = ui.allocate_at_least(egui::vec2(ui.available_width(), 100.0), egui::Sense { click: false, drag: false, focusable: false });
-        ui.painter().rect_filled(rect, egui::Rounding::ZERO, self.color_analyzer.color);
-        
-    }
-
     fn main_screen(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
+        let previous_spacing = ui.spacing().item_spacing;
         ui.spacing_mut().item_spacing.y = 0.0;
         self.toolbar(ui);
         ui.separator(); 
         ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
             self.bottom_bar(ui);  
             ui.separator(); 
+            ui.spacing_mut().item_spacing = previous_spacing;
             egui::SidePanel::right("color_analyzer")
                 .resizable(true)
                 .show_separator_line(true)
@@ -434,7 +383,7 @@ impl EnchantedView {
                 .default_width(200.0)
                 .max_width(300.0)
                 .show_animated_inside(ui, self.color_analyzer.is_open(), |ui| {
-                    self.color_analyzer(ui);
+                    self.color_analyzer.ui(ui, self.image.is_ok(), &self.theme, &self.settings);
                 });
             egui::CentralPanel::default().show_inside(ui, |ui| {
                 let res =  match &mut self.image {
@@ -445,7 +394,7 @@ impl EnchantedView {
                             let hover_pos = res.hover_pos().expect("There must be a hover pos.");
                             let (x, y) = opened_image.display.get_image_pixel_coords(hover_pos.to_vec2());
                             let pixel = opened_image.image.get_pixel(x, y).0;
-                            self.color_analyzer.color = egui::Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], pixel[3]);
+                            self.color_analyzer.set_color(egui::Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], pixel[3]));
                         }
                         res
                     },

@@ -1,5 +1,5 @@
 use egui::{Sense, Color32};
-use crate::egui_extensions::{ContextEx, PainterEx, Vec2Ex};
+use crate::{egui_extensions::{ContextEx, PainterEx, Vec2Ex}, checkerboard_pattern::generate_checkerboard_pattern};
 
 pub struct PanZoomImage {
     pub constrain_to_image: bool,
@@ -331,22 +331,6 @@ impl PanZoomImage {
 
     fn regenerate_checkerboard(&mut self, area: egui::Rect) {
         const RECT_SIZE: f32 = 8.0;
-        let size = area.size();
-        let mut mesh = egui::Mesh::default();
-        let checker_count = (size / RECT_SIZE).ceil();
-        for row in 0..checker_count.y as u32 {
-            for column in 0..checker_count.x as u32 {
-                let x = column as f32 * RECT_SIZE + area.min.x;
-                let y = row as f32 * RECT_SIZE + area.min.y;
-                let rect = egui::Rect {
-                    min: egui::pos2(x, y),
-                    max: egui::pos2(x + RECT_SIZE, y + RECT_SIZE).min(area.max)
-                };
-                // let color = if (row + column) % 2 == 0 {Color32::WHITE} else {Color32::LIGHT_GRAY};
-                let color = self.checkerboard_colors[((row + column) % 2) as usize];
-                mesh.add_colored_rect(rect, color);
-            }
-        }
-        self.checkers_mesh = egui::Shape::mesh(mesh);
+        self.checkers_mesh = generate_checkerboard_pattern(area, RECT_SIZE, self.checkerboard_colors);
     }
 }
