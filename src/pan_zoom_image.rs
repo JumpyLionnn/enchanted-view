@@ -142,10 +142,15 @@ impl PanZoomImage {
         }
         // panning
         if res.dragged() {
-            self.offset -=  res.drag_delta() / self.scale;
+            // if there is a flip then the offset should be the other way around
+            self.offset -=  res.drag_delta() / self.scale * egui::vec2(if flip_horizontal {-1.0} else {1.0}, if flip_vertical {-1.0} else {1.0});
         }
         // zooming
         if res.hovered() {
+            let mouse_pos = egui::vec2(
+                if flip_horizontal {self.last_image_rect.width() - (mouse_pos.x - self.last_image_rect.min.x) + self.last_image_rect.min.x} else {mouse_pos.x}, 
+                if flip_vertical {self.last_image_rect.height() - (mouse_pos.y - self.last_image_rect.min.y) + self.last_image_rect.min.y} else {mouse_pos.y}
+            );
             let scroll_delta = ui.input(|input| input.scroll_delta);
             if scroll_delta.y > 0.0 {
                 self.set_zoom(self.scale + self.scale * 0.1, mouse_pos);
