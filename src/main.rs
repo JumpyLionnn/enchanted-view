@@ -4,7 +4,7 @@ use std::{path::PathBuf, io, fs};
 
 use center_container::CenterContainer;
 use color_analyzer::ColorAnalyzer;
-use egui::{Layout, TextureFilter, TextureOptions, TextureHandle};
+use egui::{Layout, TextureFilter, TextureOptions, TextureHandle, output};
 use file_dialog::{FileDialogHandle, FileDialog};
 use hotkey::key_bind_widget;
 use image::{DynamicImage, ImageResult, ImageError, ImageFormat, GenericImageView};
@@ -310,36 +310,40 @@ impl EnchantedView {
     }
 
     fn hotkeys(&mut self, ui: &mut egui::Ui) {
-        if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.next_image)) {
-            self.next_image();
-        }
-        if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.previous_image)) {
-            self.previous_image();
-        }
-        if let Ok(image) = &mut self.image {
-            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_in)) {
-                image.display.zoom_in();
+        if ui.output(|output| output.text_cursor_pos.is_none()) {
+            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.next_image)) {
+                self.next_image();
             }
-            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_out)) {
-                image.display.zoom_out();
+            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.previous_image)) {
+                self.previous_image();
             }
-            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_to_fit)) {
-                image.display.zoom_to_fit();
-            }
-            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_to_original)) {
-                image.display.zoom_to_original();
-            }
-            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.rotate)) {
-                self.rotation = (self.rotation + 1) % 4;
-            }
-            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.flip_horizontal)) {
-                self.flip_horizontal = !self.flip_horizontal;
-            }
-            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.flip_vertical)) {
-                self.flip_vertical = !self.flip_vertical;
-            }
-            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.pick_color)) {
-                self.color_analyzer.toggle_color_picker();
+            if let Ok(image) = &mut self.image {
+                if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_in)) {
+                    image.display.zoom_in();
+                }
+                if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_out)) {
+                    image.display.zoom_out();
+                }
+                if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_to_fit)) {
+                    image.display.zoom_to_fit();
+                }
+                if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_to_original)) {
+                    image.display.zoom_to_original();
+                }
+                if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.rotate)) {
+                    self.rotation = (self.rotation + 1) % 4;
+                }
+                if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.flip_horizontal)) {
+                    self.flip_horizontal = !self.flip_horizontal;
+                }
+                if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.flip_vertical)) {
+                    self.flip_vertical = !self.flip_vertical;
+                }
+                if self.settings.experimental_features {
+                    if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.pick_color)) {
+                        self.color_analyzer.toggle_color_picker();
+                    }
+                }
             }
         }
     }
@@ -514,7 +518,9 @@ impl EnchantedView {
             key_bind_widget(ui, "Rotate", &mut self.settings.key_binds.rotate, default_key_binds.rotate);
             key_bind_widget(ui, "Flip horizontal", &mut self.settings.key_binds.flip_horizontal, default_key_binds.flip_horizontal);
             key_bind_widget(ui, "Flip vertical", &mut self.settings.key_binds.flip_vertical, default_key_binds.flip_vertical);
-            key_bind_widget(ui, "Pick color", &mut self.settings.key_binds.pick_color, default_key_binds.pick_color);
+            if self.settings.experimental_features {
+                key_bind_widget(ui, "Pick color", &mut self.settings.key_binds.pick_color, default_key_binds.pick_color);
+            }
         });
     }
 }
