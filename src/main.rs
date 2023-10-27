@@ -21,6 +21,8 @@ mod settings;
 mod hotkey;
 mod file_dialog;
 mod checkerboard_pattern;
+mod color_name;
+mod key_value_match;
 mod color_analyzer;
 use image_directory::{ImageDirectory, ImageFormatEx, is_image_file};
 use select::{select, RadioValue};

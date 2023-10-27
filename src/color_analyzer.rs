@@ -1,5 +1,5 @@
 
-use crate::{button::{close_button, Button}, theme::Theme, settings::Settings};
+use crate::{button::{close_button, Button}, theme::Theme, settings::Settings, color_name::color_to_name};
 
 pub struct ColorAnalyzerOpenState {
     pub picking_color: bool
@@ -69,18 +69,26 @@ impl ColorAnalyzer {
                 open_state.picking_color = !open_state.picking_color;
             }
         }
-        // ui.add_space(10.0);
-        // let res = egui::widgets::color_picker::show_color(ui, self.color, egui::vec2(ui.available_width(), 80.0));
-        // ui.painter().rect_stroke(res.rect, ui.visuals().widgets.active.rounding, ui.visuals().widgets.active.bg_stroke);
-        
+
         ui.spacing_mut().slider_width = ui.available_width();
         egui::widgets::color_picker::color_picker_color32(ui, &mut self.color, egui::widgets::color_picker::Alpha::OnlyBlend);
         ui.add_space(5.0);
+        color_name_display(ui, self.color);
         rgb_display(ui, &mut self.color);
         hex_display(ui, &mut self.color);
         
     }
 }
+
+fn color_name_display(ui: &mut egui::Ui, color: egui::Color32) {
+    ui.group(|ui| {
+        ui.horizontal(|ui| {
+            ui.label("Color name:");
+            ui.add_space(ui.spacing().item_spacing.x * 0.5);
+            ui.label(color_to_name((color.r(), color.g(), color.b())).unwrap_or("unknown"));
+        });
+    });
+} 
 
 fn rgb_display(ui: &mut egui::Ui, color: &mut egui::Color32) {
     ui.group(|ui| {
