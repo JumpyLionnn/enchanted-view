@@ -211,7 +211,14 @@ impl EnchantedView {
     }
 
     fn rotate_control(&mut self, ui: &mut egui::Ui) {
-        let rotate_button = ImageButton::new(egui::include_image!("../assets/rotate.png"))
+        let image = match self.rotation {
+            0 => egui::include_image!("../assets/rotate.png"),
+            1 => egui::include_image!("../assets/rotate_90.png"),
+            2 => egui::include_image!("../assets/rotate_180.png"),
+            3 => egui::include_image!("../assets/rotate_270.png"),
+            other => {eprintln!("Unknown rotation: {other}"); egui::include_image!("../assets/rotate.png")}
+        };
+        let rotate_button = ImageButton::new(image)
             .tint(self.theme.image_button().color)
             .disabled_tint(self.theme.image_button().disabled_color)
             .enabled(self.image.is_ok())
