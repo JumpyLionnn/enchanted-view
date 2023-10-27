@@ -47,7 +47,8 @@ impl Default for KeyBinds {
 pub struct Settings {
     pub image_filtering: egui::TextureFilter,
     pub theme: ThemeKind,
-    pub key_binds: KeyBinds
+    pub key_binds: KeyBinds,
+    pub experimental_features: bool
 }
 
 impl Settings {
@@ -57,7 +58,8 @@ impl Settings {
                 .unwrap_or(Self { 
                     image_filtering: egui::TextureFilter::Nearest,
                     theme: ThemeKind::default(),
-                    key_binds: KeyBinds::default()
+                    key_binds: KeyBinds::default(),
+                    experimental_features: false
                 })
         })
     }

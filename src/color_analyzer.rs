@@ -77,6 +77,11 @@ impl ColorAnalyzer {
         rgb_display(ui, &mut self.color);
         hex_display(ui, &mut self.color);
         
+
+        ui.label(egui::RichText::new("Known Bugs").text_style(theme.heading3()));
+        ui.label("Picking colors doesn't work with rotation and flipping.");
+        ui.label("The hex color picker is pretty bad.");
+        ui.label("There are a lot of missing color names.");
     }
 }
 

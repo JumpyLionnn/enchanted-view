@@ -24,6 +24,7 @@ mod checkerboard_pattern;
 mod color_name;
 mod key_value_match;
 mod color_analyzer;
+mod switch;
 use image_directory::{ImageDirectory, ImageFormatEx, is_image_file};
 use select::{select, RadioValue};
 use settings::{Settings, KeyBinds};
@@ -32,6 +33,7 @@ use egui_extensions::ContextEx;
 use image_button::ImageButton;
 use pan_zoom_image::PanZoomImage;
 use button::Button;
+use switch::toggle;
 use theme::{Theme, ThemeKind};
 
 fn main() -> Result<(), eframe::Error> {
@@ -125,7 +127,9 @@ impl EnchantedView {
                 self.zoom_control(ui);
                 self.flip_control(ui);
                 self.rotate_control(ui);
-                self.color_analyzer_control(ui);
+                if self.settings.experimental_features {
+                    self.color_analyzer_control(ui);
+                }
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                 let settings_button = ImageButton::new(egui::include_image!("../assets/settings.png"))
@@ -475,6 +479,15 @@ impl EnchantedView {
             }
     
             self.key_binds(ui);
+
+            ui.horizontal(|ui| {
+                ui.add(toggle(&mut self.settings.experimental_features));
+                ui.label("Enable experimental features");
+            });
+            if self.settings.experimental_features {
+                ui.label(egui::RichText::new("*The experimental features aren't done and might have some bugs in them. Be careful.").color(ui.visuals().warn_fg_color).text_style(egui::TextStyle::Small));
+                self.color_analyzer.open = None;
+            }
         });
     }
 

@@ -84,7 +84,7 @@ impl Theme {
             (egui::TextStyle::Body, egui::FontId::new(13.0, egui::FontFamily::Proportional)),
             (egui::TextStyle::Monospace, egui::FontId::new(13.0, egui::FontFamily::Monospace)),
             (egui::TextStyle::Button, egui::FontId::new(13.0, egui::FontFamily::Proportional)),
-            (egui::TextStyle::Small, egui::FontId::new(10.0, egui::FontFamily::Proportional)),
+            (egui::TextStyle::Small, egui::FontId::new(11.0, egui::FontFamily::Proportional)),
         ].into()
     }
 
