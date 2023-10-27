@@ -127,15 +127,16 @@ impl EnchantedView {
                 self.zoom_control(ui);
                 self.flip_control(ui);
                 self.rotate_control(ui);
-                if self.settings.experimental_features {
-                    self.color_analyzer_control(ui);
-                }
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                 let settings_button = ImageButton::new(egui::include_image!("../assets/settings.png"))
                     .tint(self.theme.image_button().color);
                 if settings_button.ui(ui).clicked() {
                     self.settings_screen = true;
+                }
+
+                if self.settings.experimental_features {
+                    self.color_analyzer_control(ui);
                 }
             });
         });
