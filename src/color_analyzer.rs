@@ -1,5 +1,5 @@
 
-use crate::{button::{close_button, Button}, theme::Theme, settings::Settings, color_name::color_to_name};
+use crate::{button::{close_button, Button}, theme::Theme, settings::Settings, color_name::color_to_name, utilities::num_length};
 
 pub struct ColorAnalyzerOpenState {
     pub picking_color: bool
@@ -176,20 +176,6 @@ fn try_parse(str: &str) -> Option<(u8, u8, u8)> {
         }
         _ => None
     }
-}
-
-fn num_length(n: usize, base: usize) -> usize {
-    let mut power = base;
-    let mut count = 1;
-    while n >= power {
-        count += 1;
-        if let Some(new_power) = power.checked_mul(base) {
-            power = new_power;
-        } else {
-            break;
-        }
-    }
-    count
 }
 
 fn calc_char_str_width(ui: &egui::Ui, chars: &[char], count: usize, text_style: egui::TextStyle) -> f32 {

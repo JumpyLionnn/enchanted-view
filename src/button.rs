@@ -351,22 +351,12 @@ impl egui::Widget for Button<'_> {
 
 pub fn close_button(ui: &mut egui::Ui) -> egui::Response {
     let button_size = egui::Vec2::splat(ui.spacing().icon_width);
-    let rect = ui.available_rect_before_wrap();
-    let button_rect = egui::Rect::from_min_size(
-        egui::pos2(
-            rect.left(),
-            rect.top(),
-        ),
-        button_size,
-    );
 
-    let close_id = ui.auto_id_with("close_button");
-    let response = ui.interact(button_rect, close_id, egui::Sense::click());
-    ui.advance_cursor_after_rect(response.rect);
-
+    let (rect, response) = ui.allocate_exact_size(button_size, egui::Sense::click());
     let visuals = ui.style().interact(&response);
-    let rect = button_rect.shrink(2.0).expand(visuals.expansion);
+    let rect = rect.shrink(2.0).expand(visuals.expansion);
     let stroke = visuals.fg_stroke;
+    
     ui.painter() // paints \
         .line_segment([rect.left_top(), rect.right_bottom()], stroke);
     ui.painter() // paints /

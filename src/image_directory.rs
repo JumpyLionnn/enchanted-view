@@ -34,6 +34,17 @@ impl ImageDirectory {
         &self.name
     }
 
+    pub fn image_name_stem(&self) -> &str {
+        match self.name.rsplit_once(".") {
+            Some((name, _ext)) => name,
+            None => self.image_name(),
+        }
+    }
+
+    pub fn image_ext(&self) -> Option<&str> {
+        self.name.rsplit_once(".").and_then(|(_name, ext)| Some(ext))
+    }
+
     pub fn image_index(&self) -> usize {
         self.index
     }

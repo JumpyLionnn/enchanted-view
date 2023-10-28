@@ -4,7 +4,7 @@ use std::{path::PathBuf, io, fs};
 
 use center_container::CenterContainer;
 use color_analyzer::ColorAnalyzer;
-use egui::{Layout, TextureFilter, TextureOptions, TextureHandle, output};
+use egui::{Layout, TextureFilter, TextureOptions, TextureHandle, output, Widget};
 use file_dialog::{FileDialogHandle, FileDialog};
 use hotkey::key_bind_widget;
 use image::{DynamicImage, ImageResult, ImageError, ImageFormat, GenericImageView};
@@ -25,6 +25,7 @@ mod color_name;
 mod key_value_match;
 mod color_analyzer;
 mod switch;
+mod utilities;
 use image_directory::{ImageDirectory, ImageFormatEx, is_image_file};
 use select::{select, RadioValue};
 use settings::{Settings, KeyBinds};
@@ -32,9 +33,10 @@ use drop_down_menu::DropDownMenu;
 use egui_extensions::ContextEx;
 use image_button::ImageButton;
 use pan_zoom_image::PanZoomImage;
-use button::Button;
+use button::{Button, close_button};
 use switch::toggle;
 use theme::{Theme, ThemeKind};
+use utilities::{format_bytes, format_path};
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
@@ -53,9 +55,27 @@ fn main() -> Result<(), eframe::Error> {
     )
 }
 
+#[derive(Default)]
+struct ImageMetadata {
+    file_size: u128,
+    date_created: Option<chrono::DateTime<chrono::offset::Local>>,
+    date_modified: Option<chrono::DateTime<chrono::offset::Local>>,
+    date_accessed: Option<chrono::DateTime<chrono::offset::Local>>,
+    read_only: Option<bool>
+}
 struct OpenedImage {
     image: DynamicImage,
-    display: PanZoomImage
+    display: PanZoomImage,
+    metadata: ImageMetadata
+}
+
+struct ImageInfoState {
+    rename: Option<String>
+}
+
+struct ErrorWindow {
+    title: String,
+    description: String
 }
 
 struct EnchantedView {
@@ -69,7 +89,9 @@ struct EnchantedView {
     settings_screen: bool,
     settings: Settings,
     file_dialog: Option<FileDialogHandle>,
-    color_analyzer: ColorAnalyzer
+    color_analyzer: ColorAnalyzer,
+    image_info_panel: Option<ImageInfoState>,
+    error: Option<ErrorWindow>
 }
 
 impl EnchantedView {
@@ -113,7 +135,9 @@ impl EnchantedView {
             settings_screen: false,
             settings,
             file_dialog: None,
-            color_analyzer: ColorAnalyzer::new()
+            color_analyzer: ColorAnalyzer::new(),
+            image_info_panel: None,
+            error: None
         }
     }
     
@@ -138,6 +162,7 @@ impl EnchantedView {
                 if self.settings.experimental_features {
                     self.color_analyzer_control(ui);
                 }
+                self.image_info_control(ui);
             });
         });
     }
@@ -241,6 +266,22 @@ impl EnchantedView {
         }
     }
 
+    fn image_info_control(&mut self, ui: &mut egui::Ui) {
+        let image_info_button = ImageButton::new(egui::include_image!("../assets/info.png"))
+            .tint(self.theme.image_button().color)
+            .disabled_tint(self.theme.image_button().disabled_color)
+            .enabled(self.image.is_ok())
+            .selected(self.image_info_panel.is_some())
+            .tooltip("Image Info");
+        if image_info_button.ui(ui).clicked() {
+            if let Some(_) = self.image_info_panel {
+                self.image_info_panel = None;
+            }
+            else {
+                self.image_info_panel = Some(ImageInfoState { rename: None });
+            }
+        }
+    }
 
     fn bottom_bar(&mut self, ui: &mut egui::Ui) {
         let bottom_bar_height = 30.0;
@@ -276,11 +317,141 @@ impl EnchantedView {
         });
     }
 
+    fn image_info_panel(&mut self, ui: &mut egui::Ui) {
+        ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 50.0), egui::Layout::left_to_right(egui::Align::Min), |ui|{
+            ui.label("Image Info");
+            ui.allocate_ui_with_layout(ui.available_size(), egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                if close_button(ui).clicked() {
+                    self.image_info_panel = None;
+                }
+            });
+        });
+
+        ui.add_space(5.0);
+
+        if let Some(directory) = self.image_directory.as_ref() {
+            ui.label("File name");
+            let mut name = self.image_info_panel.as_ref().and_then(|panel| panel.rename.clone())
+                .unwrap_or(directory.image_name_stem().to_owned());
+            ui.visuals_mut().widgets.inactive.bg_stroke = ui.visuals_mut().widgets.hovered.bg_stroke;
+            let res = ui.add(egui::TextEdit::singleline(&mut name).margin(egui::vec2(8.0, 8.0)).min_size(egui::vec2(ui.available_width(), 2.0)));
+            if res.has_focus() {
+                if let Some(panel) = self.image_info_panel.as_mut() {
+                    panel.rename = Some(name.clone());
+                }
+            }
+            let mut submit = res.lost_focus();
+            if res.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+                res.surrender_focus();
+                submit = true;
+            }
+            if submit {
+                if let Some(panel) = self.image_info_panel.as_mut() {
+                    panel.rename = None;
+                }
+            }
+            if submit && ui.input(|input| !input.key_pressed(egui::Key::Escape)) {
+                let new_name = if let Some(ext) = directory.image_ext() {
+                    format!("{name}.{ext}")
+                } else { name };
+                let mut path = directory.current_image_path().to_owned();
+                path.set_file_name(&new_name);
+                if let Err(error) = fs::rename(directory.current_image_path(), path) {
+                    self.error = Some(ErrorWindow { 
+                        title: String::from("Rename Failed"), 
+                        description: format!("Got an error while trying to rename '{}' to '{}'.\n{}", directory.image_name(), new_name, error.to_string())
+                    });
+                }
+            }
+        }
+        ui.add_space(ui.spacing().item_spacing.y);
+
+        if let Ok(image) = self.image.as_ref() {
+            egui::Grid::new("file_info_grid")
+                .num_columns(2)
+                .striped(true)
+                .spacing(ui.spacing().item_spacing * egui::vec2(2.0, 1.5))
+                .show(ui, |ui| {
+                    ui.label("Dimensions");
+                    ui.label(format!("{}x{}", image.image.width(), image.image.height()));
+                    ui.end_row();
+
+                    ui.label("size");
+                    ui.label(format_bytes(image.metadata.file_size));
+                    ui.end_row();
+
+                    ui.label("Created");
+                    if let Some(date) = image.metadata.date_created {
+                        ui.label(format!("{}", date.format("%x %X")));
+                    }
+                    else {
+                        ui.label("--");
+                    }
+                    ui.end_row();
+
+                    ui.label("Last modified");
+                    if let Some(date) = image.metadata.date_modified {
+                        ui.label(format!("{}", date.format("%x %X")));
+                    }
+                    else {
+                        ui.label("--");
+                    }
+                    ui.end_row();
+
+                    ui.label("Last accessed");
+                    if let Some(date) = image.metadata.date_accessed {
+                        ui.label(format!("{}", date.format("%x %X")));
+                    }
+                    else {
+                        ui.label("--");
+                    }
+                    ui.end_row();
+
+                    ui.label("Permissions:");
+                    if let Some(read_only) = image.metadata.read_only {
+                        if read_only {
+                            ui.label("Readonly");
+                        }
+                        else {
+                            ui.label("All");
+                        }
+                    }
+                    else {
+                        ui.label("--");
+                    }
+                    ui.end_row();
+
+                    ui.label("Folder path");
+                    if let Some(directory) = self.image_directory.as_ref() {
+                        let path = directory.current_directory_path();
+                        let res = ui.add(egui::Label::new(egui::RichText::new(format_path(&path)).color(ui.visuals().hyperlink_color)).truncate(true))
+                            .interact(egui::Sense::click())
+                            .on_hover_cursor(egui::CursorIcon::PointingHand);
+                        if res.clicked() {
+                            if let Err(error) = open::that_detached(path) {
+                                self.error = Some(ErrorWindow { 
+                                    title: String::from("File explorer open"), 
+                                    description: format!("Failed to open the file explorer\n{}", error.to_string())
+                                });
+                            }
+                        }
+                    }
+                    else {
+                        ui.label("--");
+                    }
+                    ui.end_row();
+                });
+        }
+    }
+
     fn load_image(&mut self, path: &PathBuf) {
         let load = self.context.load_texture_file(path, TextureOptions {
             magnification: self.settings.image_filtering,
             minification: TextureFilter::Linear,
         });
+        if let Some(info) = self.image_info_panel.as_mut() {
+            info.rename = None;
+        }
         self.image = image_or_error(load, path, &self.theme);
     }
 
@@ -290,6 +461,9 @@ impl EnchantedView {
             magnification: self.settings.image_filtering,
             minification: TextureFilter::Linear,
         });
+        if let Some(info) = self.image_info_panel.as_mut() {
+            info.rename = None;
+        }
         self.image = image_or_error(load, path, &self.theme);
     }
 
@@ -394,6 +568,15 @@ impl EnchantedView {
             self.bottom_bar(ui);  
             ui.separator(); 
             ui.spacing_mut().item_spacing = previous_spacing;
+            egui::SidePanel::left("image_info")
+                .resizable(true)
+                .show_separator_line(true)
+                .min_width(220.0)
+                .default_width(250.0)
+                .max_width(400.0)
+                .show_animated_inside(ui, self.image_info_panel.is_some() && self.image.is_ok(), |ui| {
+                    self.image_info_panel(ui);
+                });
             egui::SidePanel::right("color_analyzer")
                 .resizable(true)
                 .show_separator_line(true)
@@ -534,6 +717,7 @@ impl eframe::App for EnchantedView {
             }
         }
         egui::CentralPanel::default().show(ctx, |ui| {
+            ui.set_enabled(self.error.is_none());
             if let Some(mut directory) = self.image_directory.take() {
                 if directory.check_for_changes() {
                     self.load_image(directory.current_image_path());
@@ -547,6 +731,47 @@ impl eframe::App for EnchantedView {
                 self.main_screen(ui, frame);
             }
         });
+
+        if let Some(error) = self.error.as_ref() {
+            let mut open = true;
+            let center = ctx.screen_rect().center();
+            let res = egui::Window::new(egui::RichText::new(&error.title).color(self.theme.visuals().error_fg_color))
+                .id(egui::Id::new("error_window"))
+                // .movable(false)
+                .constrain(true)
+                .collapsible(false)
+                .open(&mut open)
+                .resizable(false)
+                .fixed_pos(center)
+                .pivot(egui::Align2::CENTER_CENTER)
+                .show(ctx, |ui| {
+                    ui.label(egui::RichText::new(&error.description).text_style(self.theme.heading3()).color(ui.visuals().error_fg_color));
+                    ui.allocate_ui_with_layout(egui::vec2(ui.min_size().x, ui.available_height()), egui::Layout::top_down(egui::Align::Center), |ui| {
+                        ui.style_mut().spacing.button_padding = (24.0, 4.0).into();
+                        if ui.button("ok").clicked() {
+                            true
+                        } else { false }
+                    }).inner
+                });
+            if !open || res.and_then(|res| res.inner).unwrap_or(false) {
+                self.error = None;
+            }
+        }
+    }
+}
+
+fn load_metadata(path: &PathBuf) -> ImageMetadata {
+    if let Ok(metadata) = fs::metadata(path) {
+        ImageMetadata {
+            file_size: metadata.len() as u128,
+            date_created: metadata.created().ok().and_then(|date| Some(date.into())),
+            date_modified: metadata.modified().ok().and_then(|date| Some(date.into())),
+            date_accessed: metadata.accessed().ok().and_then(|date| Some(date.into())),
+            read_only: Some(metadata.permissions().readonly())
+        }
+    }
+    else {
+        Default::default()
     }
 }
 
@@ -562,7 +787,8 @@ fn image_or_error(res: ImageResult<(TextureHandle, DynamicImage)>, path: &PathBu
                     handle, 
                     image_size, 
                     theme.checkerboard_pattern_colors()
-                )
+                ),
+                metadata: load_metadata(path)
             })
         },
         Err(error) => {
