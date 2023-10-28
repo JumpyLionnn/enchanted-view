@@ -41,6 +41,7 @@ use utilities::{format_bytes, format_path};
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         initial_window_size: Some(egui::vec2(600.0, 800.0)),
+        min_window_size: Some(egui::vec2(300.0, 200.0)),
         icon_data: Some(eframe::IconData::try_from_png_bytes(include_bytes!("../assets/icon.png")).expect("The icon should be valid.")),
         ..Default::default()
     };
@@ -407,7 +408,7 @@ impl EnchantedView {
                     }
                     ui.end_row();
 
-                    ui.label("Permissions:");
+                    ui.label("Permissions");
                     if let Some(read_only) = image.metadata.read_only {
                         if read_only {
                             ui.label("Readonly");
@@ -580,13 +581,13 @@ impl EnchantedView {
             egui::SidePanel::right("color_analyzer")
                 .resizable(true)
                 .show_separator_line(true)
-                .min_width(150.0)
-                .default_width(200.0)
-                .max_width(300.0)
+                .min_width(200.0)
+                .default_width(250.0)
+                .max_width(400.0)
                 .show_animated_inside(ui, self.color_analyzer.is_open(), |ui| {
                     self.color_analyzer.ui(ui, self.image.is_ok(), &self.theme, &self.settings);
                 });
-            egui::CentralPanel::default().show_inside(ui, |ui| {
+            egui::CentralPanel::default().frame(egui::Frame::central_panel(ui.style()).inner_margin(0.0)).show_inside(ui, |ui| {
                 let res =  match &mut self.image {
                     Ok(opened_image) => {
                         let highlight_pixel = self.color_analyzer.is_picking_color();
@@ -655,35 +656,41 @@ impl EnchantedView {
             }
             ui.heading("Settings");
         });
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            ui.label(egui::RichText::new("Visuals").text_style(self.theme.heading2()));
-            ui.label("Theme");
-            let theme_changed = select(ui, "theme_select", &mut self.settings.theme, vec![RadioValue::new("Light theme", ThemeKind::Light), RadioValue::new("Dark theme", ThemeKind::Dark)]);
-            if theme_changed {
-                self.update_theme();
-            }
-    
-            ui.label("Texture filter");
-            let filter_options = vec![
-                RadioValue::new("Nearest, I want to see the pixels.", TextureFilter::Nearest), 
-                RadioValue::new("Linear, I want a smooth image.", TextureFilter::Linear)
-            ];
-            let filter_changed = select(ui, "texture_filter_select", &mut self.settings.image_filtering, filter_options);
-            if filter_changed {
-                self.reload_texture();
-            }
-    
-            self.key_binds(ui);
-
-            ui.horizontal(|ui| {
-                ui.add(toggle(&mut self.settings.experimental_features));
-                ui.label("Enable experimental features");
+        ui.allocate_ui_with_layout(ui.available_size(), egui::Layout::left_to_right(egui::Align::Min), |ui| {
+            ui.add_space(10.0);
+            ui.allocate_ui_with_layout(ui.available_size(), egui::Layout::top_down(egui::Align::Min),|ui| {
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    ui.label(egui::RichText::new("Visuals").text_style(self.theme.heading2()));
+                    ui.label("Theme");
+                    let theme_changed = select(ui, "theme_select", &mut self.settings.theme, vec![RadioValue::new("Light theme", ThemeKind::Light), RadioValue::new("Dark theme", ThemeKind::Dark)]);
+                    if theme_changed {
+                        self.update_theme();
+                    }
+            
+                    ui.label("Texture filter");
+                    let filter_options = vec![
+                        RadioValue::new("Nearest, I want to see the pixels.", TextureFilter::Nearest), 
+                        RadioValue::new("Linear, I want a smooth image.", TextureFilter::Linear)
+                    ];
+                    let filter_changed = select(ui, "texture_filter_select", &mut self.settings.image_filtering, filter_options);
+                    if filter_changed {
+                        self.reload_texture();
+                    }
+            
+                    self.key_binds(ui);
+        
+                    ui.horizontal(|ui| {
+                        ui.add(toggle(&mut self.settings.experimental_features));
+                        ui.label("Enable experimental features");
+                    });
+                    if self.settings.experimental_features {
+                        ui.label(egui::RichText::new("*The experimental features aren't done and might have some bugs in them. Be careful.").color(ui.visuals().warn_fg_color).text_style(egui::TextStyle::Small));
+                        self.color_analyzer.open = None;
+                    }
+                });
             });
-            if self.settings.experimental_features {
-                ui.label(egui::RichText::new("*The experimental features aren't done and might have some bugs in them. Be careful.").color(ui.visuals().warn_fg_color).text_style(egui::TextStyle::Small));
-                self.color_analyzer.open = None;
-            }
         });
+        
     }
 
     fn key_binds(&mut self, ui: &mut egui::Ui) {
@@ -716,7 +723,7 @@ impl eframe::App for EnchantedView {
                 self.load_image(&path);
             }
         }
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::central_panel(&*ctx.style()).inner_margin(0.0)).show(ctx, |ui| {
             ui.set_enabled(self.error.is_none());
             if let Some(mut directory) = self.image_directory.take() {
                 if directory.check_for_changes() {
