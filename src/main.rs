@@ -458,43 +458,8 @@ impl EnchantedView {
             });
         });
 
-        ui.add_space(5.0);
-
-        if let Some(directory) = self.image_directory.as_ref() {
-            ui.label("File name");
-            let mut name = self.image_info_panel.as_ref().and_then(|panel| panel.rename.clone())
-                .unwrap_or(directory.image_name_stem().to_owned());
-            ui.visuals_mut().widgets.inactive.bg_stroke = ui.visuals_mut().widgets.hovered.bg_stroke;
-            let res = ui.add(egui::TextEdit::singleline(&mut name).margin(egui::vec2(8.0, 8.0)).min_size(egui::vec2(ui.available_width(), 2.0)));
-            if res.has_focus() {
-                if let Some(panel) = self.image_info_panel.as_mut() {
-                    panel.rename = Some(name.clone());
-                }
-            }
-            let mut submit = res.lost_focus();
-            if res.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
-                res.surrender_focus();
-                submit = true;
-            }
-            if submit {
-                if let Some(panel) = self.image_info_panel.as_mut() {
-                    panel.rename = None;
-                }
-            }
-            if submit && ui.input(|input| !input.key_pressed(egui::Key::Escape)) {
-                let new_name = if let Some(ext) = directory.image_ext() {
-                    format!("{name}.{ext}")
-                } else { name };
-                let mut path = directory.current_image_path().to_owned();
-                path.set_file_name(&new_name);
-                if let Err(error) = fs::rename(directory.current_image_path(), path) {
-                    self.error = Some(ErrorWindow { 
-                        title: String::from("Rename Failed"), 
-                        description: format!("Got an error while trying to rename '{}' to '{}'.\n{}", directory.image_name(), new_name, error.to_string())
-                    });
-                }
-            }
-        }
+        ui.add_space(ui.spacing().item_spacing.y);
+        self.image_info_name(ui);        
         ui.add_space(ui.spacing().item_spacing.y);
 
         if let Ok(image) = self.image.as_ref() {
@@ -572,6 +537,48 @@ impl EnchantedView {
                     }
                     ui.end_row();
                 });
+        }
+    }
+
+    fn image_info_name(&mut self, ui: &mut egui::Ui) {
+        ui.label("File name");
+        let mut name = self.image_info_panel.as_ref().and_then(|panel| panel.rename.clone())
+            .unwrap_or_else(|| {
+                self.image_directory.as_ref()
+                    .and_then(|directory| Some(directory.image_name_stem().to_owned()))
+                    .unwrap_or(String::from("--"))
+            });
+        ui.visuals_mut().widgets.inactive.bg_stroke = ui.visuals_mut().widgets.hovered.bg_stroke;
+        let res = ui.add_enabled(self.image_directory.is_some(), egui::TextEdit::singleline(&mut name).margin(egui::vec2(8.0, 8.0)).min_size(egui::vec2(ui.available_width(), 2.0)));
+        if res.has_focus() {
+            if let Some(panel) = self.image_info_panel.as_mut() {
+                panel.rename = Some(name.clone());
+            }
+        }
+        let mut submit = res.lost_focus();
+        if res.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+            res.surrender_focus();
+            submit = true;
+        }
+        if submit {
+            if let Some(panel) = self.image_info_panel.as_mut() {
+                panel.rename = None;
+            }
+        }
+        if submit && ui.input(|input| !input.key_pressed(egui::Key::Escape)) {
+            if let Some(directory) = self.image_directory.as_ref() {
+                let new_name = if let Some(ext) = directory.image_ext() {
+                    format!("{name}.{ext}")
+                } else { name };
+                let mut path = directory.current_image_path().to_owned();
+                path.set_file_name(&new_name);
+                if let Err(error) = fs::rename(directory.current_image_path(), path) {
+                    self.error = Some(ErrorWindow { 
+                        title: String::from("Rename Failed"), 
+                        description: format!("Got an error while trying to rename '{}' to '{}'.\n{}", directory.image_name(), new_name, error.to_string())
+                    });
+                }
+            }
         }
     }
 
