@@ -1,5 +1,5 @@
 
-use crate::{button::{close_button, Button}, theme::Theme, settings::Settings, color_name::color_to_name, utilities::num_length};
+use crate::{widgets::{close_button, Button}, theme::Theme, settings::Settings, color_name::color_to_name, utilities::num_length};
 
 pub struct ColorAnalyzerOpenState {
     pub picking_color: bool

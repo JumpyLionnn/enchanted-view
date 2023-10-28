@@ -2,41 +2,29 @@
 
 use std::{path::PathBuf, io, fs};
 
-use center_container::CenterContainer;
 use color_analyzer::ColorAnalyzer;
 use egui::{Layout, TextureFilter, TextureOptions, TextureHandle};
 use file_dialog::{FileDialogHandle, FileDialog};
-use hotkey::key_bind_widget;
 use image::{DynamicImage, ImageResult, ImageError, ImageFormat, GenericImageView};
-mod drop_down_menu;
+mod widgets;
 mod egui_extensions;
-mod image_button;
 mod pan_zoom_image;
-mod button;
-mod center_container;
-mod select;
 mod theme;
 mod image_directory;
 mod settings;
-mod hotkey;
 mod file_dialog;
 mod checkerboard_pattern;
 mod color_name;
 mod key_value_match;
 mod color_analyzer;
-mod switch;
 mod utilities;
 use image_directory::{ImageDirectory, ImageFormatEx, is_image_file};
-use select::{select, RadioValue};
-use settings::{Settings, KeyBinds};
-use drop_down_menu::DropDownMenu;
+use settings::Settings;
 use egui_extensions::ContextEx;
-use image_button::ImageButton;
 use pan_zoom_image::PanZoomImage;
-use button::{Button, close_button};
-use switch::toggle;
-use theme::{Theme, ThemeKind};
+use theme::Theme;
 use utilities::{format_bytes, format_path};
+use widgets::{CenterContainer, Button, ImageButton, close_button, DropDownMenu};
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
@@ -80,7 +68,7 @@ struct ErrorWindow {
 }
 
 struct EnchantedView {
-    image: Result<OpenedImage, String>,
+    image: Result<OpenedImage, Option<String>>,
     image_directory: Option<ImageDirectory>,
     flip_horizontal: bool,
     flip_vertical: bool,
@@ -123,7 +111,7 @@ impl EnchantedView {
                 } else { None };
                 (image_or_error(load, &image_path, &theme), directory)
             },
-            None => (Err("Unable to find image.".to_string()), None),
+            None => (Err(None), None),
         };
         Self {
             image,
@@ -142,6 +130,182 @@ impl EnchantedView {
         }
     }
     
+    fn load_image(&mut self, path: &PathBuf) {
+        let load = self.context.load_texture_file(path, TextureOptions {
+            magnification: self.settings.image_filtering,
+            minification: TextureFilter::Linear,
+        });
+        if let Some(info) = self.image_info_panel.as_mut() {
+            info.rename = None;
+        }
+        self.image = image_or_error(load, path, &self.theme);
+    }
+
+    fn load_image_raw(&mut self, bytes: &[u8], path: &PathBuf) {
+        let name = path.to_string_lossy().to_string();
+        let load = self.context.load_texture_raw(&name, bytes, TextureOptions {
+            magnification: self.settings.image_filtering,
+            minification: TextureFilter::Linear,
+        });
+        if let Some(info) = self.image_info_panel.as_mut() {
+            info.rename = None;
+        }
+        self.image = image_or_error(load, path, &self.theme);
+    }
+
+    fn reload_texture(&mut self) {
+        if let Ok(image) = &mut self.image {
+            let name = self.image_directory.as_ref().expect("The path info should be valid if the image is").image_name();
+            let options = TextureOptions { magnification: self.settings.image_filtering, minification: TextureFilter::Linear };
+            let handle = self.context.load_texture_from_image(&image.image, options, name);
+            image.display.texture_handle = handle;
+        }
+    }
+
+    fn next_image(&mut self) {
+        if let Some(mut directory) = self.image_directory.take() {
+            let path = directory.next_image();
+            self.load_image(path);
+            self.image_directory = Some(directory);
+        }
+    }
+
+    fn previous_image(&mut self) {
+        if let Some(mut directory) = self.image_directory.take() {
+            let path = directory.previous_image();
+            self.load_image(path);
+            self.image_directory = Some(directory);
+        }
+    }
+
+    fn hotkeys(&mut self, ctx: &egui::Context) {
+        if ctx.output(|output| output.text_cursor_pos.is_none()) {
+            if ctx.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.next_image)) {
+                self.next_image();
+            }
+            if ctx.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.previous_image)) {
+                self.previous_image();
+            }
+            if let Ok(image) = &mut self.image {
+                if ctx.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_in)) {
+                    image.display.zoom_in();
+                }
+                if ctx.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_out)) {
+                    image.display.zoom_out();
+                }
+                if ctx.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_to_fit)) {
+                    image.display.zoom_to_fit();
+                }
+                if ctx.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_to_original)) {
+                    image.display.zoom_to_original();
+                }
+                if ctx.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.rotate)) {
+                    self.rotation = (self.rotation + 1) % 4;
+                }
+                if ctx.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.flip_horizontal)) {
+                    self.flip_horizontal = !self.flip_horizontal;
+                }
+                if ctx.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.flip_vertical)) {
+                    self.flip_vertical = !self.flip_vertical;
+                }
+                if self.settings.experimental_features {
+                    if ctx.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.pick_color)) {
+                        self.color_analyzer.toggle_color_picker();
+                    }
+                }
+            }
+        }
+    }
+
+    fn update_theme(&mut self) {
+        self.theme = Theme::get(self.settings.theme.clone());
+        self.context.style_mut(|style| {
+            style.visuals = self.theme.visuals().clone();
+            style.text_styles = self.theme.text_style();
+        });
+        if let Ok(image) = &mut self.image {
+            image.display.change_checkerboard_color(self.theme.checkerboard_pattern_colors());
+        }
+    }
+
+    fn check_for_image_updates(&mut self) {
+        if let Some(handle) = self.file_dialog.as_ref() {
+            if let Some(path) = handle.file_picked() {
+                self.image_directory = Some(ImageDirectory::new(&path).expect("Unable to initialize the image directory."));
+                self.load_image(&path);
+            }
+        }
+        if let Some(mut directory) = self.image_directory.take() {
+            if directory.check_for_changes() {
+                self.load_image(directory.current_image_path());
+            }
+            self.image_directory = Some(directory);
+        }
+    }
+}
+
+// ui implementation
+impl EnchantedView {
+    fn main_screen(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
+        let previous_spacing = ui.spacing().item_spacing;
+        ui.spacing_mut().item_spacing.y = 0.0;
+        self.toolbar(ui);
+        ui.separator(); 
+        ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
+            self.bottom_bar(ui);  
+            ui.separator(); 
+            ui.spacing_mut().item_spacing = previous_spacing;
+            egui::SidePanel::left("image_info")
+                .resizable(true)
+                .show_separator_line(true)
+                .width_range(220.0..=400.0)
+                .default_width(250.0)
+                .show_animated_inside(ui, self.image_info_panel.is_some() && self.image.is_ok(), |ui| {
+                    self.image_info_panel(ui);
+                });
+            egui::SidePanel::right("color_analyzer")
+                .resizable(true)
+                .show_separator_line(true)
+                .width_range(200.0..=400.0)
+                .default_width(250.0)
+                .show_animated_inside(ui, self.color_analyzer.is_open(), |ui| {
+                    self.color_analyzer.ui(ui, self.image.is_ok(), &self.theme, &self.settings);
+                });
+            egui::CentralPanel::default().frame(egui::Frame::central_panel(ui.style()).inner_margin(0.0)).show_inside(ui, |ui| {
+                let res =  match &mut self.image {
+                    Ok(opened_image) => {
+                        let highlight_pixel = self.color_analyzer.is_picking_color();
+                        let res = opened_image.display.update(ui, self.flip_horizontal, self.flip_vertical, self.rotation, highlight_pixel);
+                        if res.clicked() && highlight_pixel {
+                            let hover_pos = res.hover_pos().expect("There must be a hover pos.");
+                            let (x, y) = opened_image.display.get_image_pixel_coords(hover_pos.to_vec2());
+                            let pixel = opened_image.image.get_pixel(x, y).0;
+                            self.color_analyzer.set_color(egui::Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], pixel[3]));
+                        }
+                        res
+                    },
+                    Err(error) => {
+                        CenterContainer::new(ui.available_size()).inner_layout(egui::Layout::top_down(egui::Align::Center)).ui(ui, |ui| {
+                            ui.spacing_mut().button_padding = egui::vec2(15.0, 8.0);
+                            ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
+                            if let Some(error) = error {
+                                ui.label(egui::RichText::new(format!("Couldn't load image: {error}")).text_style(self.theme.heading2()));
+                            }
+                            if ui.add(Button::new(egui::RichText::new("Open an image").text_style(self.theme.heading3()))).clicked() {
+                                let start_dir = self.image_directory.as_ref().and_then(|directory| Some(directory.current_directory_path()));
+                                let formats = ImageFormat::iterator().flat_map(|format| format.extensions_str());
+                                self.file_dialog = Some(FileDialog::new(frame).title("Choose an image").directory(start_dir).add_filter("Image Formats", &formats.collect::<Vec<&&str>>()).pick_file(ui.ctx()));
+                            }
+                            ui.label(egui::RichText::new("or").text_style(self.theme.heading3()));
+                            ui.label(egui::RichText::new("drag an image to the window.").text_style(self.theme.heading3()));
+                        }).response
+                    }
+                };
+                self.handle_drop_files(ui, res.rect);
+            });
+        });
+        self.hotkeys(ui.ctx());
+    }
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         let toolbar_size = egui::vec2(ui.available_width(), 30.0);
@@ -284,40 +448,6 @@ impl EnchantedView {
         }
     }
 
-    fn bottom_bar(&mut self, ui: &mut egui::Ui) {
-        let bottom_bar_height = 30.0;
-
-        ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), bottom_bar_height), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-            self.theme.style_image_button(ui);
-            let res = ImageButton::new(egui::include_image!("../assets/arrow_left.png"))
-                .tint(self.theme.image_button().color)
-                .disabled_tint(self.theme.image_button().disabled_color)
-                .enabled(self.image_directory.is_some())
-                .tooltip(format!("Previous image ({})", ui.ctx().format_shortcut(&self.settings.key_binds.previous_image)))
-                .ui(ui);
-            if res.clicked() {
-                self.previous_image();
-            }
-            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                let res = ImageButton::new(egui::include_image!("../assets/arrow_right.png"))
-                    .tint(self.theme.image_button().color)
-                    .disabled_tint(self.theme.image_button().disabled_color)
-                    .enabled(self.image_directory.is_some())
-                    .tooltip(format!("Next image ({})", ui.ctx().format_shortcut(&self.settings.key_binds.next_image)))
-                    .ui(ui);
-                if res.clicked() {
-                    self.next_image();
-                }
-                if let Some(directory) = &self.image_directory {
-                    ui.centered_and_justified(|ui| {
-                        ui.label(format!("{} ({}/{})", directory.image_name(), directory.image_index() + 1, directory.count()));
-                    });
-                }
-                
-            });
-        });
-    }
-
     fn image_info_panel(&mut self, ui: &mut egui::Ui) {
         ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), self.theme.heading3().resolve(ui.style()).size), egui::Layout::left_to_right(egui::Align::Min), |ui|{
             ui.label(egui::RichText::new("Image Info").text_style(self.theme.heading3()));
@@ -445,82 +575,39 @@ impl EnchantedView {
         }
     }
 
-    fn load_image(&mut self, path: &PathBuf) {
-        let load = self.context.load_texture_file(path, TextureOptions {
-            magnification: self.settings.image_filtering,
-            minification: TextureFilter::Linear,
-        });
-        if let Some(info) = self.image_info_panel.as_mut() {
-            info.rename = None;
-        }
-        self.image = image_or_error(load, path, &self.theme);
-    }
-
-    fn load_image_raw(&mut self, bytes: &[u8], path: &PathBuf) {
-        let name = path.to_string_lossy().to_string();
-        let load = self.context.load_texture_raw(&name, bytes, TextureOptions {
-            magnification: self.settings.image_filtering,
-            minification: TextureFilter::Linear,
-        });
-        if let Some(info) = self.image_info_panel.as_mut() {
-            info.rename = None;
-        }
-        self.image = image_or_error(load, path, &self.theme);
-    }
-
-    fn next_image(&mut self) {
-        if let Some(mut directory) = self.image_directory.take() {
-            let path = directory.next_image();
-            self.load_image(path);
-            self.image_directory = Some(directory);
-        }
-    }
-
-    fn previous_image(&mut self) {
-        if let Some(mut directory) = self.image_directory.take() {
-            let path = directory.previous_image();
-            self.load_image(path);
-            self.image_directory = Some(directory);
-        }
-    }
-
-    fn hotkeys(&mut self, ui: &mut egui::Ui) {
-        if ui.output(|output| output.text_cursor_pos.is_none()) {
-            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.next_image)) {
-                self.next_image();
-            }
-            if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.previous_image)) {
+    fn bottom_bar(&mut self, ui: &mut egui::Ui) {
+        let bottom_bar_height = 30.0;
+        ui.add_space(5.0);
+        ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), bottom_bar_height), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            self.theme.style_image_button(ui);
+            ui.add_space(5.0);
+            let res = ImageButton::new(egui::include_image!("../assets/arrow_left.png"))
+                .tint(self.theme.image_button().color)
+                .disabled_tint(self.theme.image_button().disabled_color)
+                .enabled(self.image_directory.is_some())
+                .tooltip(format!("Previous image ({})", ui.ctx().format_shortcut(&self.settings.key_binds.previous_image)))
+                .ui(ui);
+            if res.clicked() {
                 self.previous_image();
             }
-            if let Ok(image) = &mut self.image {
-                if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_in)) {
-                    image.display.zoom_in();
+            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(5.0);
+                let res = ImageButton::new(egui::include_image!("../assets/arrow_right.png"))
+                    .tint(self.theme.image_button().color)
+                    .disabled_tint(self.theme.image_button().disabled_color)
+                    .enabled(self.image_directory.is_some())
+                    .tooltip(format!("Next image ({})", ui.ctx().format_shortcut(&self.settings.key_binds.next_image)))
+                    .ui(ui);
+                if res.clicked() {
+                    self.next_image();
                 }
-                if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_out)) {
-                    image.display.zoom_out();
-                }
-                if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_to_fit)) {
-                    image.display.zoom_to_fit();
-                }
-                if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.zoom_to_original)) {
-                    image.display.zoom_to_original();
-                }
-                if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.rotate)) {
-                    self.rotation = (self.rotation + 1) % 4;
-                }
-                if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.flip_horizontal)) {
-                    self.flip_horizontal = !self.flip_horizontal;
-                }
-                if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.flip_vertical)) {
-                    self.flip_vertical = !self.flip_vertical;
-                }
-                if self.settings.experimental_features {
-                    if ui.input_mut(|input| input.consume_shortcut(&self.settings.key_binds.pick_color)) {
-                        self.color_analyzer.toggle_color_picker();
-                    }
-                }
-            }
-        }
+                if let Some(directory) = &self.image_directory {
+                    ui.centered_and_justified(|ui| {
+                        ui.label(format!("{} ({}/{})", directory.image_name(), directory.image_index() + 1, directory.count()));
+                    });
+                }   
+            });
+        });
     }
 
     fn handle_drop_files(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
@@ -560,191 +647,33 @@ impl EnchantedView {
         }
     }
 
-    fn main_screen(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
-        let previous_spacing = ui.spacing().item_spacing;
-        ui.spacing_mut().item_spacing.y = 0.0;
-        self.toolbar(ui);
-        ui.separator(); 
-        ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-            self.bottom_bar(ui);  
-            ui.separator(); 
-            ui.spacing_mut().item_spacing = previous_spacing;
-            egui::SidePanel::left("image_info")
-                .resizable(true)
-                .show_separator_line(true)
-                .min_width(220.0)
-                .default_width(250.0)
-                .max_width(400.0)
-                .show_animated_inside(ui, self.image_info_panel.is_some() && self.image.is_ok(), |ui| {
-                    self.image_info_panel(ui);
-                });
-            egui::SidePanel::right("color_analyzer")
-                .resizable(true)
-                .show_separator_line(true)
-                .min_width(200.0)
-                .default_width(250.0)
-                .max_width(400.0)
-                .show_animated_inside(ui, self.color_analyzer.is_open(), |ui| {
-                    self.color_analyzer.ui(ui, self.image.is_ok(), &self.theme, &self.settings);
-                });
-            egui::CentralPanel::default().frame(egui::Frame::central_panel(ui.style()).inner_margin(0.0)).show_inside(ui, |ui| {
-                let res =  match &mut self.image {
-                    Ok(opened_image) => {
-                        let highlight_pixel = self.color_analyzer.is_picking_color();
-                        let res = opened_image.display.update(ui, self.flip_horizontal, self.flip_vertical, self.rotation, highlight_pixel);
-                        if res.clicked() && highlight_pixel {
-                            let hover_pos = res.hover_pos().expect("There must be a hover pos.");
-                            let (x, y) = opened_image.display.get_image_pixel_coords(hover_pos.to_vec2());
-                            let pixel = opened_image.image.get_pixel(x, y).0;
-                            self.color_analyzer.set_color(egui::Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], pixel[3]));
-                        }
-                        res
-                    },
-                    Err(error) => {
-                        CenterContainer::new(ui.available_size()).inner_layout(egui::Layout::top_down(egui::Align::Center)).ui(ui, |ui| {
-                            ui.spacing_mut().button_padding = egui::vec2(15.0, 8.0);
-                            ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
-                            ui.label(egui::RichText::new(format!("Couldn't load image: {error}")).text_style(self.theme.heading2()));
-                            if ui.add(Button::new(egui::RichText::new("Open an image").text_style(self.theme.heading3()))).clicked() {
-                                let start_dir = self.image_directory.as_ref().and_then(|directory| Some(directory.current_directory_path()));
-                                let formats = ImageFormat::iterator().flat_map(|format| format.extensions_str());
-                                self.file_dialog = Some(FileDialog::new(frame).title("Choose an image").directory(start_dir).add_filter("Image Formats", &formats.collect::<Vec<&&str>>()).pick_file(ui.ctx()));
-                            }
-                            ui.label(egui::RichText::new("or").text_style(self.theme.heading3()));
-                            ui.label(egui::RichText::new("drag an image to the window.").text_style(self.theme.heading3()));
-    
-                        }).response
-                    }
-                };
-                
-    
-                self.handle_drop_files(ui, res.rect);
-            });
-        });
-        self.hotkeys(ui);
-    }
-
-    fn update_theme(&mut self) {
-        self.theme = Theme::get(self.settings.theme.clone());
-        self.context.style_mut(|style| {
-            style.visuals = self.theme.visuals().clone();
-            style.text_styles = self.theme.text_style();
-        });
-        if let Ok(image) = &mut self.image {
-            image.display.change_checkerboard_color(self.theme.checkerboard_pattern_colors());
-        }
-    }
-
-    fn reload_texture(&mut self) {
-        if let Ok(image) = &mut self.image {
-            let name = self.image_directory.as_ref().expect("The path info should be valid if the image is").image_name();
-            let options = TextureOptions { magnification: self.settings.image_filtering, minification: TextureFilter::Linear };
-            let handle = self.context.load_texture_from_image(&image.image, options, name);
-            image.display.texture_handle = handle;
-        }
-    }
-
     fn settings_screen(&mut self, ui: &mut egui::Ui) {
         let toolbar_size = egui::vec2(ui.available_width(), 30.0);
         ui.allocate_ui_with_layout(toolbar_size, egui::Layout::left_to_right(egui::Align::Center), |ui| {
             self.theme.style_image_button(ui);
+            ui.add_space(5.0);
             let back_button = ImageButton::new(egui::include_image!("../assets/back_arrow.png"))
                 .tint(self.theme.image_button().color);
             if back_button.ui(ui).clicked() {
                 self.settings_screen = false;
-                self.settings.store(&self.context);
             }
             ui.heading("Settings");
         });
-        ui.allocate_ui_with_layout(ui.available_size(), egui::Layout::left_to_right(egui::Align::Min), |ui| {
-            ui.add_space(10.0);
-            ui.allocate_ui_with_layout(ui.available_size(), egui::Layout::top_down(egui::Align::Min),|ui| {
-                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                    ui.label(egui::RichText::new("Visuals").text_style(self.theme.heading2()));
-                    ui.label("Theme");
-                    let theme_changed = select(ui, "theme_select", &mut self.settings.theme, vec![RadioValue::new("Light theme", ThemeKind::Light), RadioValue::new("Dark theme", ThemeKind::Dark)]);
-                    if theme_changed {
-                        self.update_theme();
-                    }
-            
-                    ui.label("Texture filter");
-                    let filter_options = vec![
-                        RadioValue::new("Nearest, I want to see the pixels.", TextureFilter::Nearest), 
-                        RadioValue::new("Linear, I want a smooth image.", TextureFilter::Linear)
-                    ];
-                    let filter_changed = select(ui, "texture_filter_select", &mut self.settings.image_filtering, filter_options);
-                    if filter_changed {
-                        self.reload_texture();
-                    }
-            
-                    self.key_binds(ui);
-        
-                    ui.horizontal(|ui| {
-                        ui.add(toggle(&mut self.settings.experimental_features));
-                        ui.label("Enable experimental features");
-                    });
-                    if self.settings.experimental_features {
-                        ui.label(egui::RichText::new("*The experimental features aren't done and might have some bugs in them. Be careful.").color(ui.visuals().warn_fg_color).text_style(egui::TextStyle::Small));
-                        self.color_analyzer.open = None;
-                    }
-                });
-            });
-        });
-        
-    }
-
-    fn key_binds(&mut self, ui: &mut egui::Ui) {
-        ui.label(egui::RichText::new("Key binds").text_style(self.theme.heading2()));
-        egui::Grid::new("key_binds_grid").show(ui, |ui| {
-            // changing the size so all key combinations will fit inside
-            ui.spacing_mut().interact_size = ui.spacing().interact_size * egui::vec2(2.1, 1.0);
-            let default_key_binds = KeyBinds::default();
-            key_bind_widget(ui, "Next image", &mut self.settings.key_binds.next_image, default_key_binds.next_image);
-            key_bind_widget(ui, "Previous image", &mut self.settings.key_binds.previous_image, default_key_binds.previous_image);
-            key_bind_widget(ui, "Zoom in", &mut self.settings.key_binds.zoom_in, default_key_binds.zoom_in);
-            key_bind_widget(ui, "Zoom out", &mut self.settings.key_binds.zoom_out, default_key_binds.zoom_out);
-            key_bind_widget(ui, "Zoom to fit", &mut self.settings.key_binds.zoom_to_fit, default_key_binds.zoom_to_fit);
-            key_bind_widget(ui, "Zoom to original", &mut self.settings.key_binds.zoom_to_original, default_key_binds.zoom_to_original);
-            key_bind_widget(ui, "Rotate", &mut self.settings.key_binds.rotate, default_key_binds.rotate);
-            key_bind_widget(ui, "Flip horizontal", &mut self.settings.key_binds.flip_horizontal, default_key_binds.flip_horizontal);
-            key_bind_widget(ui, "Flip vertical", &mut self.settings.key_binds.flip_vertical, default_key_binds.flip_vertical);
-            if self.settings.experimental_features {
-                key_bind_widget(ui, "Pick color", &mut self.settings.key_binds.pick_color, default_key_binds.pick_color);
-            }
-        });
-    }
-}
-
-impl eframe::App for EnchantedView {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        if let Some(handle) = self.file_dialog.as_ref() {
-            if let Some(path) = handle.file_picked() {
-                self.image_directory = Some(ImageDirectory::new(&path).expect("Unable to initialize the image directory."));
-                self.load_image(&path);
+        if let Some(update) = self.settings.show(ui, &self.theme) {
+            match update {
+                settings::SettingsUpdate::ReloadTheme => self.update_theme(),
+                settings::SettingsUpdate::ReloadTexture => self.reload_texture(),
+                settings::SettingsUpdate::CloseColorAnalyzer => self.color_analyzer.open = None,
             }
         }
-        egui::CentralPanel::default().frame(egui::Frame::central_panel(&*ctx.style()).inner_margin(0.0)).show(ctx, |ui| {
-            ui.set_enabled(self.error.is_none());
-            if let Some(mut directory) = self.image_directory.take() {
-                if directory.check_for_changes() {
-                    self.load_image(directory.current_image_path());
-                }
-                self.image_directory = Some(directory);
-            }
-            if self.settings_screen {
-                self.settings_screen(ui);
-            }
-            else {
-                self.main_screen(ui, frame);
-            }
-        });
+    }
 
-        if let Some(error) = self.error.as_ref() {
+    fn error_popup(&mut self, ctx: &egui::Context) {
+        if let Some(error_window) = self.error.as_ref() {
             let mut open = true;
             let center = ctx.screen_rect().center();
-            let res = egui::Window::new(egui::RichText::new(&error.title).color(self.theme.visuals().error_fg_color))
+            let res = egui::Window::new(egui::RichText::new(&error_window.title).color(self.theme.visuals().error_fg_color))
                 .id(egui::Id::new("error_window"))
-                // .movable(false)
                 .constrain(true)
                 .collapsible(false)
                 .open(&mut open)
@@ -752,7 +681,7 @@ impl eframe::App for EnchantedView {
                 .fixed_pos(center)
                 .pivot(egui::Align2::CENTER_CENTER)
                 .show(ctx, |ui| {
-                    ui.label(egui::RichText::new(&error.description).text_style(self.theme.heading3()).color(ui.visuals().error_fg_color));
+                    ui.label(egui::RichText::new(&error_window.description).text_style(self.theme.heading3()).color(ui.visuals().error_fg_color));
                     ui.allocate_ui_with_layout(egui::vec2(ui.min_size().x, ui.available_height()), egui::Layout::top_down(egui::Align::Center), |ui| {
                         ui.style_mut().spacing.button_padding = (24.0, 4.0).into();
                         if ui.button("ok").clicked() {
@@ -764,6 +693,24 @@ impl eframe::App for EnchantedView {
                 self.error = None;
             }
         }
+    }
+}
+
+impl eframe::App for EnchantedView {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.check_for_image_updates();
+        egui::CentralPanel::default().frame(egui::Frame::central_panel(&*ctx.style()).inner_margin(0.0)).show(ctx, |ui| {
+            ui.set_enabled(self.error.is_none());
+            
+            if self.settings_screen {
+                self.settings_screen(ui);
+            }
+            else {
+                self.main_screen(ui, frame);
+            }
+        });
+
+        self.error_popup(ctx);
     }
 }
 
@@ -782,7 +729,7 @@ fn load_metadata(path: &PathBuf) -> ImageMetadata {
     }
 }
 
-fn image_or_error(res: ImageResult<(TextureHandle, DynamicImage)>, path: &PathBuf, theme: &Theme) -> Result<OpenedImage, String> {
+fn image_or_error(res: ImageResult<(TextureHandle, DynamicImage)>, path: &PathBuf, theme: &Theme) -> Result<OpenedImage, Option<String>> {
     match res {
         Ok((handle, image)) => {
             let image_size = egui::vec2(image.width() as f32, image.height() as f32);
@@ -803,26 +750,26 @@ fn image_or_error(res: ImageResult<(TextureHandle, DynamicImage)>, path: &PathBu
                 ImageError::IoError(error) => {
                     match error.kind() {
                         io::ErrorKind::NotFound => {
-                            Err("The system could not find the file specified.".to_string())
+                            Err(Some("The system could not find the file specified.".to_string()))
                         },
                         io::ErrorKind::PermissionDenied => {
                             if let Ok(metadata) = fs::metadata(path) {
                                 // On windows this error is returned if the path is a directory
                                 if metadata.is_dir() {
-                                    Err("Expected a file path, but a directory was provided.".to_string())
+                                    Err(Some("Expected a file path, but a directory was provided.".to_string()))
                                 }
                                 else {
-                                    Err("Access is denied.".to_string())
+                                    Err(Some("Access is denied.".to_string()))
                                 }
                             }
                             else {
-                                Err(error.to_string())
+                                Err(Some(error.to_string()))
                             }
                         }
-                        _ => Err(error.to_string())
+                        _ => Err(Some(error.to_string()))
                     }
                 }
-                other => Err(other.to_string())
+                other => Err(Some(other.to_string()))
             }
         },
     }
