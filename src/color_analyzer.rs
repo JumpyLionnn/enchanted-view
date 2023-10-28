@@ -53,11 +53,11 @@ impl ColorAnalyzer {
     pub fn ui(&mut self, ui: &mut egui::Ui, enabled: bool, theme: &Theme, settings: &Settings) {
         // Need to keep in mind that the color analyzer will be visible even if self.image_analyzer is none
         // because of the animation.
-        ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 50.0), egui::Layout::left_to_right(egui::Align::Min), |ui|{
+        ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), theme.heading3().resolve(ui.style()).size), egui::Layout::left_to_right(egui::Align::Min), |ui|{
             if close_button(ui).clicked() {
                 self.open = None;
             }
-            ui.label("Color Analyzer");
+            ui.label(egui::RichText::new("Color Analyzer").text_style(theme.heading3()));
         });
         let image = egui::Image::new(egui::include_image!("../assets/color_picker.png"))
             .tint(if enabled {theme.image_button().color} else {theme.image_button().disabled_color});

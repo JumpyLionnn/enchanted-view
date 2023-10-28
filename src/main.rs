@@ -4,7 +4,7 @@ use std::{path::PathBuf, io, fs};
 
 use center_container::CenterContainer;
 use color_analyzer::ColorAnalyzer;
-use egui::{Layout, TextureFilter, TextureOptions, TextureHandle, output, Widget};
+use egui::{Layout, TextureFilter, TextureOptions, TextureHandle};
 use file_dialog::{FileDialogHandle, FileDialog};
 use hotkey::key_bind_widget;
 use image::{DynamicImage, ImageResult, ImageError, ImageFormat, GenericImageView};
@@ -318,8 +318,8 @@ impl EnchantedView {
     }
 
     fn image_info_panel(&mut self, ui: &mut egui::Ui) {
-        ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), 50.0), egui::Layout::left_to_right(egui::Align::Min), |ui|{
-            ui.label("Image Info");
+        ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), self.theme.heading3().resolve(ui.style()).size), egui::Layout::left_to_right(egui::Align::Min), |ui|{
+            ui.label(egui::RichText::new("Image Info").text_style(self.theme.heading3()));
             ui.allocate_ui_with_layout(ui.available_size(), egui::Layout::right_to_left(egui::Align::Min), |ui| {
                 if close_button(ui).clicked() {
                     self.image_info_panel = None;

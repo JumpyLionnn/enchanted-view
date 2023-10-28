@@ -354,7 +354,8 @@ pub fn close_button(ui: &mut egui::Ui) -> egui::Response {
 
     let (rect, response) = ui.allocate_exact_size(button_size, egui::Sense::click());
     let visuals = ui.style().interact(&response);
-    let rect = rect.shrink(2.0).expand(visuals.expansion);
+    let mut rect = rect.shrink(2.0).expand(visuals.expansion);
+    rect.set_center(egui::pos2(rect.center().x, ui.available_rect_before_wrap().center().y));
     let stroke = visuals.fg_stroke;
     
     ui.painter() // paints \
