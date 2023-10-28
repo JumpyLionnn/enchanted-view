@@ -191,3 +191,26 @@ fn calc_char_str_width(ui: &egui::Ui, chars: &[char], count: usize, text_style: 
         .into_galley(ui, Some(false), f32::INFINITY, text_style);
     widget_text.size().x
 }
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn try_parse_hex() {
+        assert_eq!(try_parse("FFF"), Some((255, 255, 255)));
+        assert_eq!(try_parse("FFFFFF"), Some((255, 255, 255)));
+        assert_eq!(try_parse("000"), Some((0, 0, 0)));
+        assert_eq!(try_parse("000000"), Some((0, 0, 0)));
+        assert_eq!(try_parse("FF0000"), Some((255, 0, 0)));
+        assert_eq!(try_parse("00F"), Some((0, 0, 255)));
+        assert_eq!(try_parse("040000"), Some((4, 0, 0)));
+        assert_eq!(try_parse("04000"), None);
+        assert_eq!(try_parse("4000"), None);
+        assert_eq!(try_parse("00"), None);
+        assert_eq!(try_parse("0"), None);
+        assert_eq!(try_parse(""), None);
+    }
+}

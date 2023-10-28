@@ -35,3 +35,21 @@ pub fn format_path<P: AsRef<Path>>(p: P) -> String {
         p
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn num_length_test() {
+        assert_eq!(num_length(200, 10), 3);
+        assert_eq!(num_length(20540, 10), 5);
+        assert_eq!(num_length(0, 10), 1);
+        assert_eq!(num_length(3, 10), 1);
+        assert_eq!(num_length(14, 10), 2);
+        assert_eq!(num_length(200, 10), 3);
+        assert_eq!(num_length(200, 16), 2);
+        assert_eq!(num_length(200, 2), 8);
+    }
+}
