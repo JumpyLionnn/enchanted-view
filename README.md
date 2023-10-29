@@ -26,21 +26,22 @@ After it's installed you can set it as your default image viewer and it will jus
 - zoom ui
 - Checkers background for images with transparency
 - rotate/flip
+- see details about the image like file size, dimensions and more
 
 ## Planned Features
-- picking a color
+- picking a color (currently under the experimental feature flag)
 - pick average color or darkest/lightest color from a region
 - convert between formats
 - gif - step between frames export frames as other formats or specific frames
 - svg - see the svg tree and inspect different elements
 - pixel grid
 - rulers
-- see details about the image like file size, dimensions and more
 
 and a lot more...
 ### Maybe Features
 - printing - depends on platform/library support
 - Browser support
+- Albums / tags for images
 
 ## Contributing
 Contributions are what make the open source community such an amazing place to learn, inspire, and create. Any contributions you make are greatly appreciated.

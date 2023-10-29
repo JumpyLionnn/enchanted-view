@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, fs};
 
 use egui::TextureHandle;
 use image::{ImageResult, EncodableLayout, DynamicImage};
@@ -34,8 +34,6 @@ impl PainterEx for egui::Painter {
         if left_stroke_width > 0.0 {
             self.line_segment([bounds.clamp(stroke_rect.left_bottom()), bounds.clamp(stroke_rect.left_top())], egui::Stroke::new(left_stroke_width, stroke.color));
         }
-        // self.line_segment([stroke_rect.right_bottom(), stroke_rect.left_bottom()], stroke);
-        // self.line_segment([stroke_rect.left_bottom(), stroke_rect.left_top()], stroke);
     }
 
 
@@ -52,10 +50,18 @@ impl PainterEx for egui::Painter {
     }
 }
 
+pub struct ImageLoadResult {
+    pub handle: egui::TextureHandle,
+    pub image: image::DynamicImage,
+    pub inner_format: Option<image::ImageFormat>,
+    pub file_format: Option<image::ImageFormat>
+}
+
 pub trait ContextEx {
     fn rect_contains_pointer(&self, layer_id: egui::LayerId, rect: egui::Rect) -> bool;
-    fn load_texture_raw(&self, name: &str, bytes: &[u8], options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)>;
-    fn load_texture_file(&self, path: &PathBuf, options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)>;
+    fn load_texture_file(&self, path: &PathBuf, options: egui::TextureOptions) -> ImageResult<ImageLoadResult>;
+    fn load_texture_raw(&self, path: &PathBuf, bytes: &[u8], options: egui::TextureOptions) -> ImageResult<ImageLoadResult>;
+    fn load_texture_raw_with_format_hint(&self, name: &str, bytes: &[u8], options: egui::TextureOptions, format_hint: ImageResult<image::ImageFormat>) -> ImageResult<ImageLoadResult>;        
     fn load_texture_from_image(&self, image: &DynamicImage, options: egui::TextureOptions, name: impl Into<String>) -> TextureHandle;
     fn delta_time(&self) -> f32;
 }
@@ -73,20 +79,31 @@ impl ContextEx for egui::Context {
         }
     }
 
-    fn load_texture_raw(&self, name: &str, bytes: &[u8], options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)> {
-        let image = image::load_from_memory(bytes)?;
-        let rgba_image = image.to_rgba8();
-        let texture_image = egui::ColorImage::from_rgba_unmultiplied(
-            [rgba_image.width() as usize, rgba_image.height() as usize], 
-            rgba_image.as_bytes());
-        let handle = self.load_texture(name, texture_image, options);
-        Ok((handle, image))
+    fn load_texture_file(&self, path: &PathBuf, options: egui::TextureOptions) -> ImageResult<ImageLoadResult> {
+        let name = path.to_string_lossy();
+        let file_image_format = image::ImageFormat::from_path(path);
+        let bytes = fs::read(path).map_err(image::ImageError::IoError)?;
+        self.load_texture_raw_with_format_hint(&name,  &bytes, options, file_image_format)
     }
-    fn load_texture_file(&self, path: &PathBuf, options: egui::TextureOptions) -> ImageResult<(egui::TextureHandle, DynamicImage)> {
-        let name = path.to_string_lossy().to_string();
-        let image = image::open(path)?;
+
+    fn load_texture_raw(&self, path: &PathBuf, bytes: &[u8], options: egui::TextureOptions) -> ImageResult<ImageLoadResult> {
+        let name = path.to_string_lossy();
+        let file_image_format = image::ImageFormat::from_path(path);
+        self.load_texture_raw_with_format_hint(&name, bytes, options, file_image_format)
+    }
+    fn load_texture_raw_with_format_hint(&self, name: &str, bytes: &[u8], options: egui::TextureOptions, format_hint: ImageResult<image::ImageFormat>) -> ImageResult<ImageLoadResult> {
+        let guessed_format = image::guess_format(bytes);
+        let inner_format = guessed_format.as_ref().ok().cloned();
+        let file_format_hint = format_hint.as_ref().ok().cloned();
+        let format = guessed_format.or(format_hint)?;
+        let image = image::load_from_memory_with_format(bytes, format)?;
         let handle = self.load_texture_from_image(&image, options, name);
-        Ok((handle, image))
+        Ok(ImageLoadResult { 
+            handle, 
+            image, 
+            inner_format, 
+            file_format: file_format_hint
+        })
     }
 
     fn load_texture_from_image(&self, image: &DynamicImage, options: egui::TextureOptions, name: impl Into<String>) -> TextureHandle {

@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+// TODO: rfd uses gdk on linux. need to find a better solution that doesn't depend on any external library
 pub struct FileDialog {
     dialog: rfd::FileDialog
 }

@@ -3,7 +3,7 @@
 use std::{path::PathBuf, io, fs};
 
 use color_analyzer::ColorAnalyzer;
-use egui::{Layout, TextureFilter, TextureOptions, TextureHandle};
+use egui::{Layout, TextureFilter, TextureOptions};
 use file_dialog::{FileDialogHandle, FileDialog};
 use image::{DynamicImage, ImageResult, ImageError, ImageFormat, GenericImageView};
 mod widgets;
@@ -20,7 +20,7 @@ mod color_analyzer;
 mod utilities;
 use image_directory::{ImageDirectory, ImageFormatEx, is_image_file};
 use settings::Settings;
-use egui_extensions::ContextEx;
+use egui_extensions::{ContextEx, ImageLoadResult};
 use pan_zoom_image::PanZoomImage;
 use theme::Theme;
 use utilities::{format_bytes, format_path};
@@ -50,7 +50,46 @@ struct ImageMetadata {
     date_created: Option<chrono::DateTime<chrono::offset::Local>>,
     date_modified: Option<chrono::DateTime<chrono::offset::Local>>,
     date_accessed: Option<chrono::DateTime<chrono::offset::Local>>,
-    read_only: Option<bool>
+    read_only: Option<bool>,
+    file_format: Option<image::ImageFormat>,
+    inner_format: Option<image::ImageFormat>
+}
+
+impl ImageMetadata {
+    fn image_format_display(&self) -> String {
+        self.inner_format
+            .or(self.file_format)
+            .and_then(|format| Some(format!("{format:?}").to_uppercase()))
+            .unwrap_or_else(|| String::from("--"))
+    }
+
+    fn image_format_different(&self) -> bool {
+        if let (Some(inner_format), Some(file_format)) = (self.inner_format.as_ref(), self.file_format.as_ref()) {
+            inner_format != file_format
+        } else { false }
+    }
+
+    fn inner_format_display(&self) -> String {
+        self.inner_format.as_ref().and_then(|format| {
+            let mut inner_format_str = format!("{format:?}");
+            inner_format_str.make_ascii_uppercase();
+            Some(inner_format_str)
+        }).unwrap_or_else(|| String::from("--"))
+    }
+
+    fn file_format_display(&self) -> String {
+        self.file_format.as_ref().and_then(|format| {
+            let mut file_format_str = format!("{format:?}");
+            file_format_str.make_ascii_uppercase();
+            Some(file_format_str)
+        }).unwrap_or_else(|| String::from("--"))
+    }
+
+    fn format_ext(&self) -> Option<&str> {
+        self.inner_format.and_then(|format| {
+            Some(format.extensions_str()[0])
+        })
+    }
 }
 struct OpenedImage {
     image: DynamicImage,
@@ -142,8 +181,7 @@ impl EnchantedView {
     }
 
     fn load_image_raw(&mut self, bytes: &[u8], path: &PathBuf) {
-        let name = path.to_string_lossy().to_string();
-        let load = self.context.load_texture_raw(&name, bytes, TextureOptions {
+        let load = self.context.load_texture_raw(path, bytes, TextureOptions {
             magnification: self.settings.image_filtering,
             minification: TextureFilter::Linear,
         });
@@ -236,8 +274,17 @@ impl EnchantedView {
             }
         }
         if let Some(mut directory) = self.image_directory.take() {
-            if directory.check_for_changes() {
-                self.load_image(directory.current_image_path());
+            if let Some(change) = directory.check_for_changes() {
+                match change {
+                    image_directory::Change::NewImage => {
+                        self.load_image(directory.current_image_path());
+                    },
+                    image_directory::Change::Rename => {
+                        if let Ok(image) = self.image.as_mut() {
+                            image.metadata.file_format = image::ImageFormat::from_path(directory.current_image_path()).ok();
+                        }
+                    },
+                }
             }
             self.image_directory = Some(directory);
         }
@@ -438,13 +485,19 @@ impl EnchantedView {
             .enabled(self.image.is_ok())
             .selected(self.image_info_panel.is_some())
             .tooltip("Image Info");
-        if image_info_button.ui(ui).clicked() {
+        let res = image_info_button.ui(ui);
+        if res.clicked() {
             if let Some(_) = self.image_info_panel {
                 self.image_info_panel = None;
             }
             else {
                 self.image_info_panel = Some(ImageInfoState { rename: None });
             }
+        }
+        if self.image.as_ref().is_ok_and(|image| image.metadata.image_format_different()) {  
+            let radius = ui.spacing().icon_width_inner / 2.0;
+            let center = res.rect.left_top() + egui::Vec2::splat(radius + ui.spacing().icon_spacing);
+            ui.painter().circle_filled(center, radius, ui.visuals().warn_fg_color);
         }
     }
 
@@ -536,7 +589,37 @@ impl EnchantedView {
                         ui.label("--");
                     }
                     ui.end_row();
+
+                    ui.label("Format");
+                    ui.label(image.metadata.image_format_display());
+                    ui.end_row();
                 });
+            if image.metadata.image_format_different() {
+                let text = format!("Image formats don't match. File extension is {} but the image format is {}.", image.metadata.file_format_display(), image.metadata.inner_format_display());
+                ui.label(egui::RichText::new(text).color(ui.visuals().warn_fg_color));
+                if ui.button("Change format").clicked() {
+                    if let Some(directory) = self.image_directory.as_ref() {
+                        let path = directory.current_image_path();
+                        let mut new_path = path.clone();
+                        new_path.set_extension(image.metadata.format_ext().expect("The ext must exist."));
+                        if let Err(error) = fs::rename(path, new_path) {
+                            let from_file_name = path.file_name().expect("The file name doesn't exist").to_string_lossy();
+                            let to_file_name = path.file_name().expect("The file name doesn't exist").to_string_lossy();
+                            self.error = Some(ErrorWindow { 
+                                title: String::from("Rename Failed"), 
+                                description: format!("Got an error while trying to rename '{}' to '{}'.\n{}", from_file_name, to_file_name, error.to_string())
+                            });
+                        }
+                    }
+                    else {
+                        eprintln!("Image directory does not exist.");
+                        self.error = Some(ErrorWindow { 
+                            title: String::from("Internal Error"), 
+                            description: String::from("Image directory does not exist.")
+                        });
+                    }
+                }
+            }
         }
     }
 
@@ -721,14 +804,16 @@ impl eframe::App for EnchantedView {
     }
 }
 
-fn load_metadata(path: &PathBuf) -> ImageMetadata {
+fn load_metadata(path: &PathBuf, image_load_result: &ImageLoadResult) -> ImageMetadata {
     if let Ok(metadata) = fs::metadata(path) {
         ImageMetadata {
             file_size: metadata.len() as u128,
             date_created: metadata.created().ok().and_then(|date| Some(date.into())),
             date_modified: metadata.modified().ok().and_then(|date| Some(date.into())),
             date_accessed: metadata.accessed().ok().and_then(|date| Some(date.into())),
-            read_only: Some(metadata.permissions().readonly())
+            read_only: Some(metadata.permissions().readonly()),
+            file_format: image_load_result.file_format,
+            inner_format: image_load_result.inner_format
         }
     }
     else {
@@ -736,20 +821,21 @@ fn load_metadata(path: &PathBuf) -> ImageMetadata {
     }
 }
 
-fn image_or_error(res: ImageResult<(TextureHandle, DynamicImage)>, path: &PathBuf, theme: &Theme) -> Result<OpenedImage, Option<String>> {
+fn image_or_error(res: ImageResult<ImageLoadResult>, path: &PathBuf, theme: &Theme) -> Result<OpenedImage, Option<String>> {
     match res {
-        Ok((handle, image)) => {
-            let image_size = egui::vec2(image.width() as f32, image.height() as f32);
+        Ok(image_load_result) => {
+            let image_size = egui::vec2(image_load_result.image.width() as f32, image_load_result.image.height() as f32);
+            let metadata = load_metadata(path, &image_load_result);
             Ok(OpenedImage {
-                image: image, 
+                image: image_load_result.image, 
                 display: PanZoomImage::new(
                     true, 
                     true, 
-                    handle, 
+                    image_load_result.handle, 
                     image_size, 
                     theme.checkerboard_pattern_colors()
                 ),
-                metadata: load_metadata(path)
+                metadata
             })
         },
         Err(error) => {

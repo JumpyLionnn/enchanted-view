@@ -9,7 +9,7 @@ pub struct ImageDirectory {
     index: usize,
     children: Vec<PathBuf>,
     // for file system changes
-    receiver: Receiver<Change>,
+    receiver: Receiver<FsChange>,
     _watcher: RecommendedWatcher
 }
 
@@ -86,22 +86,24 @@ impl ImageDirectory {
     }
 
     /// returns if an image reload is required
-    pub fn check_for_changes(&mut self) -> bool {
+    pub fn check_for_changes(&mut self) -> Option<Change> {
         if let Ok(change) = self.receiver.try_recv() {
             match change {
-                Change::Create(path) => {
+                FsChange::Create(path) => {
                     let index = self.children.iter().position(|child_path| *child_path == path);
                     if let Some(index) = index {
                         eprintln!("File was created that already existed");
-                        index == self.index
+                        if index == self.index {
+                            Some(Change::NewImage)
+                        } else { None }
                     }
                     else {
                         // TODO(maybe): sort the children and then insert it at the right place
                         self.children.push(path);
-                        false
+                        None
                     }
                 },
-                Change::Remove(path) => {
+                FsChange::Remove(path) => {
                     let index = self.children.iter().position(|child_path| *child_path == path);
                     if let Some(index) = index {
                         self.children.remove(index);
@@ -109,38 +111,47 @@ impl ImageDirectory {
                         if index <= self.index {
                             self.index -= 1;
                         }
-                        reload
+                        if reload {
+                            Some(Change::NewImage)
+                        } else { None }
                     }
                     else {
                         eprintln!("Got remove event, file didnt exist.");
-                        false 
+                        None 
                     }
                 },
-                Change::FileChange(path) => {
+                FsChange::FileChange(path) => {
                     self.children
                         .iter()
                         .position(|child_path| *child_path == path)
-                        .is_some_and(|index| index == self.index)
+                        .and_then(|index| if index == self.index { Some(Change::NewImage) } else { None })
+                        
                 },
-                Change::Rename(from, to) => {
+                FsChange::Rename(from, to) => {
                     let index = self.children.iter().position(|child_path| *child_path == from);
                     if let Some(index) = index {
-                        if index == self.index {
+                        let res = if index == self.index {
                             self.name = to.file_name().expect("Couldn't extract the file name").to_string_lossy().to_string();
-                        }
+                            Some(Change::Rename)
+                        } else { None };
                         self.children[index] = to;
+                        res
                     }
                     else {
-                        eprintln!("Got rename event, file didnt exist.");
+                        eprintln!("Got rename event, file didn't exist.");
+                        None
                     }
-                    false
                 },
             }
         }
-        else { false }
+        else { None }
     }
 }
 
+pub enum Change {
+    NewImage,
+    Rename
+}
 
 fn find_image_files(path: &Path) -> Vec<PathBuf> {
     fs::read_dir(path).expect("Couldn't read the parent dir")
@@ -184,14 +195,14 @@ impl ImageFormatEx for ImageFormat {
     }
 }
 
-enum Change {
+enum FsChange {
     Create(PathBuf),
     Remove(PathBuf),
     FileChange(PathBuf),
     Rename(PathBuf, PathBuf)
 }
 
-fn setup_watcher() -> notify::Result<(RecommendedWatcher, Receiver<Change>)> {
+fn setup_watcher() -> notify::Result<(RecommendedWatcher, Receiver<FsChange>)> {
     let (sender, receiver) = mpsc::channel();
     let mut last_rename = None;
     Ok((notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
@@ -205,7 +216,7 @@ fn setup_watcher() -> notify::Result<(RecommendedWatcher, Receiver<Change>)> {
                         _ => {
                             for path in event.paths {
                                 if is_image_file(&path) {
-                                    let _  = sender.send(Change::Create(path));
+                                    let _  = sender.send(FsChange::Create(path));
                                 }
                             }
                         }
@@ -224,7 +235,7 @@ fn setup_watcher() -> notify::Result<(RecommendedWatcher, Receiver<Change>)> {
                                     assert_eq!(event.paths.len(), 1);
                                     if let Some(from) = last_rename.take() {
                                         if is_image_file(&event.paths[0]) {
-                                            let _  = sender.send(Change::Rename(from, event.paths.pop().expect("Couldn't take to value")));
+                                            let _  = sender.send(FsChange::Rename(from, event.paths.pop().expect("Couldn't take to value")));
                                         }
                                     }
                                     else {
@@ -236,7 +247,7 @@ fn setup_watcher() -> notify::Result<(RecommendedWatcher, Receiver<Change>)> {
                                     let to = event.paths.pop().expect("Couldn't take to value");
                                     if is_image_file(&to) {
                                         let from = event.paths.pop().expect("Couldn't take to value");
-                                        let _  = sender.send(Change::Rename(from, to));
+                                        let _  = sender.send(FsChange::Rename(from, to));
                                     }
                                 }
                                 _other => {
@@ -247,7 +258,7 @@ fn setup_watcher() -> notify::Result<(RecommendedWatcher, Receiver<Change>)> {
                         _other => {
                             for path in event.paths {
                                 if is_image_file(&path) {
-                                    let _  = sender.send(Change::FileChange(path));
+                                    let _  = sender.send(FsChange::FileChange(path));
                                 }
                             }
                         }
@@ -259,7 +270,7 @@ fn setup_watcher() -> notify::Result<(RecommendedWatcher, Receiver<Change>)> {
                         _ => {
                             for path in event.paths {
                                 if is_image_file(&path) {
-                                    let _  = sender.send(Change::Remove(path));
+                                    let _  = sender.send(FsChange::Remove(path));
                                 }
                             }
                         }
