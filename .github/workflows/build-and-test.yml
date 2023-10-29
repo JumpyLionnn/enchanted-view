@@ -1,6 +1,7 @@
 name: Rust
 
 on:
+  workflow_dispatch:
   push:
     branches: [ "master" ]
   pull_request:
@@ -20,6 +21,11 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+    - name: setup rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+        rustflags:
     - name: Build
       run: cargo build --verbose
     - name: Run tests
