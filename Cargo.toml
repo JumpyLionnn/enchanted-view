@@ -15,6 +15,8 @@ egui_extras = { version = "0.23.0", features = ["image"] }
 image = { version = "0.24", features = [
   "jpeg",
   "png",
+  "webp",
+  "webp-encoder"
 ] }
 notify = "6.1.1"
 open = "5.0.0"

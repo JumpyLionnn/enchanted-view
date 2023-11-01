@@ -24,7 +24,7 @@ use egui_extensions::{ContextEx, ImageLoadResult};
 use pan_zoom_image::PanZoomImage;
 use theme::Theme;
 use utilities::{format_bytes, format_path};
-use widgets::{CenterContainer, Button, ImageButton, close_button, DropDownMenu};
+use widgets::{CenterContainer, Button, ImageButton, close_button, DropDownMenu, ComboBox, PathPickerState, PathPicker};
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
@@ -63,6 +63,11 @@ impl ImageMetadata {
             .unwrap_or_else(|| String::from("--"))
     }
 
+    fn image_format(&self) -> Option<image::ImageFormat> {
+        self.inner_format
+            .or(self.file_format)
+    }
+
     fn image_format_different(&self) -> bool {
         if let (Some(inner_format), Some(file_format)) = (self.inner_format.as_ref(), self.file_format.as_ref()) {
             inner_format != file_format
@@ -98,7 +103,12 @@ struct OpenedImage {
 }
 
 struct ImageInfoState {
-    rename: Option<String>
+    rename: Option<String>,
+    selected_format: image::ImageFormat,
+    format_ext: String,
+    path_picker_state: PathPickerState,
+    target_path: PathBuf,
+    target_name: String
 }
 
 struct ErrorWindow {
@@ -308,7 +318,7 @@ impl EnchantedView {
                 .width_range(220.0..=400.0)
                 .default_width(250.0)
                 .show_animated_inside(ui, self.image_info_panel.is_some() && self.image.is_ok(), |ui| {
-                    self.image_info_panel(ui);
+                    self.image_info_panel(ui, frame);
                 });
             egui::SidePanel::right("color_analyzer")
                 .resizable(true)
@@ -491,7 +501,20 @@ impl EnchantedView {
                 self.image_info_panel = None;
             }
             else {
-                self.image_info_panel = Some(ImageInfoState { rename: None });
+                let current_format = self.image.as_ref().ok().and_then(|image| image.metadata.inner_format);
+                let format = image::ImageFormat::iterator().find_map(|format| {
+                    if format.can_write() && current_format.is_some_and(|f| f != *format) || current_format.is_none() {
+                        Some(*format)
+                    } else { None }
+                }).expect("There should be atleast one format");
+                self.image_info_panel = Some(ImageInfoState { 
+                    rename: None, 
+                    selected_format: format,
+                    format_ext: format.extensions_str()[0].to_owned(),
+                    path_picker_state: PathPickerState::default(),
+                    target_path: self.image_directory.as_ref().and_then(|directory| Some(directory.current_directory_path())).unwrap_or(PathBuf::default()),
+                    target_name: self.image_directory.as_ref().and_then(|directory| Some(directory.image_name_stem())).unwrap_or_default().to_owned()
+                });
             }
         }
         if self.image.as_ref().is_ok_and(|image| image.metadata.image_format_different()) {  
@@ -501,7 +524,7 @@ impl EnchantedView {
         }
     }
 
-    fn image_info_panel(&mut self, ui: &mut egui::Ui) {
+    fn image_info_panel(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
         ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), self.theme.heading3().resolve(ui.style()).size), egui::Layout::left_to_right(egui::Align::Min), |ui|{
             ui.label(egui::RichText::new("Image Info").text_style(self.theme.heading3()));
             ui.allocate_ui_with_layout(ui.available_size(), egui::Layout::right_to_left(egui::Align::Min), |ui| {
@@ -621,6 +644,8 @@ impl EnchantedView {
                 }
             }
         }
+        ui.add_space(100.0);
+        self.image_info_conversion(ui, frame);
     }
 
     fn image_info_name(&mut self, ui: &mut egui::Ui) {
@@ -663,6 +688,100 @@ impl EnchantedView {
                 }
             }
         }
+    }
+
+    fn image_info_conversion(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
+        ui.allocate_ui_with_layout( ui.available_size(), egui::Layout::top_down(egui::Align::Center), |ui| {
+            ui.label("Format Conversion");
+            if let Ok(image) = self.image.as_ref() {
+                ui.label(image.metadata.inner_format_display());
+            }
+            let avail_rect = ui.available_rect_before_wrap();
+            let origin = avail_rect.center_top();
+            let arrow_size = 25.0;
+            let rect = egui::Rect::from_min_size(avail_rect.left_top(), egui::vec2(ui.available_width(), arrow_size));
+            ui.painter().arrow(origin, egui::vec2(0.0, arrow_size), egui::Stroke::new(2.0, ui.visuals().widgets.inactive.fg_stroke.color));
+            ui.advance_cursor_after_rect(rect);
+
+            self.image_info_format_selection(ui);
+            if let Some(panel) = self.image_info_panel.as_mut() {
+                ui.add(PathPicker::new(&mut panel.target_path, frame, &mut panel.path_picker_state));
+                ui.horizontal(|ui| {
+                    ui.label("Name");
+                    ui.text_edit_singleline(&mut panel.target_name);
+                });
+            }
+            if ui.button("Convert").clicked() {
+                if let (Ok(image), Some(panel)) = (self.image.as_ref(), self.image_info_panel.as_ref()) {
+                    let filename = format!("{}.{}", panel.target_name, panel.format_ext);
+                    let mut path = panel.target_path.clone();
+                    path.extend([filename].iter());
+                    if let Err(error) = image.image.save_with_format(path, panel.selected_format) {
+                        self.error = Some(ErrorWindow { 
+                            title: String::from("Image conversion failed"), 
+                            description: error.to_string() 
+                        });
+                    }
+                }
+                else {
+                    self.error = Some(ErrorWindow { 
+                        title: String::from("Internal Error"), 
+                        description: String::from("Couldn't convert image, image is err") 
+                    });
+                    eprintln!("Couldn't convert image, image is err");
+                }
+            }    
+        });    
+    }
+
+    fn image_info_format_selection(&mut self, ui: &mut egui::Ui) {
+        let selected_text = self.image_info_panel.as_ref()
+            .and_then(|info| Some(format!("{:?}", info.selected_format).to_uppercase()))
+            .unwrap_or_else(|| String::from("--"));
+        ComboBox::from_id_source("target_format_selection")
+            .width(150.0)
+            .selected_text(selected_text)
+            .show_ui(ui, |ui| {
+                let formats = image::ImageFormat::iterator()
+                    .filter_map(|format| {
+                        if format.can_write() {
+                            Some(format.extensions_str().iter().map(|ext| (format.clone(), *ext)))
+                            // Some((*format, format!("{format:?}").to_uppercase()))
+                        } else { None }
+                    })
+                    .flatten()
+                    .collect::<Vec<(image::ImageFormat, &str)>>();
+                let id = ui.auto_id_with("search");
+                let mut text = ui.data(|data| data.get_temp::<String>(id).unwrap_or_default());
+                ui.visuals_mut().widgets.inactive.bg_stroke = ui.visuals().widgets.hovered.bg_stroke;
+                let res = ui.add(egui::TextEdit::singleline(&mut text).hint_text("Search..."));
+                let search = text.to_lowercase();
+                let empty = text.is_empty();
+                if res.lost_focus() {
+                    ui.data_mut(|data| data.remove::<String>(id));
+                }
+                else {
+                    ui.data_mut(|data| data.insert_temp(id, text));
+                }
+                egui::ScrollArea::vertical()
+                    .max_height(ui.spacing().combo_height - res.rect.height())
+                    .show(ui, |ui| {
+                        for (format, ext) in formats {
+                            let search_ext = ext.to_lowercase();
+                            let show = empty || (search_ext.contains(&search) || search.contains(&search_ext));
+                            if show {
+                                let enabled = self.image.as_ref().is_ok_and(|image| image.metadata.image_format() != Some(format)) || self.image.is_err();
+                                if ui.add_enabled(enabled, Button::new(ext)).clicked() {
+                                    if let Some(state) = self.image_info_panel.as_mut() {
+                                        state.selected_format = format;
+                                        state.format_ext = ext.to_string();
+                                    }
+                                }
+                            }
+                        }
+                        ((), res.has_focus())
+                    }).inner
+    });
     }
 
     fn bottom_bar(&mut self, ui: &mut egui::Ui) {

@@ -41,7 +41,21 @@ impl FileDialog {
         });
         FileDialogHandle { _thread_handle: thread_handle, receiver }
     }
+
+    pub fn pick_directory(self, context: &egui::Context) -> FileDialogHandle {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let context = context.clone();
+        let thread_handle = std::thread::spawn(move || {
+            let file = self.dialog.pick_folder();
+            if let Some(path) = file {
+                let _ = sender.send(path);
+            }
+            context.request_repaint();
+        });
+        FileDialogHandle { _thread_handle: thread_handle, receiver }
+    }
 }
+
 
 pub struct FileDialogHandle {
     _thread_handle: std::thread::JoinHandle<()>,
